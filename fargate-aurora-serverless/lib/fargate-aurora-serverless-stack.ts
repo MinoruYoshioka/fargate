@@ -6,7 +6,7 @@ import * as ecs_patterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
-export class FargateAuroraStack extends cdk.Stack {
+export class FargateAuroraServerlessStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
@@ -47,8 +47,8 @@ export class FargateAuroraStack extends cdk.Stack {
       },
     });
 
-    // Aurora PostgreSQL クラスター（プロビジョンド版）を作成します。
-    // 固定インスタンス構成で、予測可能な性能とコストを実現します。
+    // Aurora PostgreSQL クラスターを作成します。
+    // Serverless v2を使用して自動スケーリングを実現します。
     const auroraCluster = new rds.DatabaseCluster(this, 'AuroraCluster', {
       engine: rds.DatabaseClusterEngine.auroraPostgres({
         version: rds.AuroraPostgresEngineVersion.VER_16_6, // 最新のPostgreSQL 16互換バージョン
@@ -58,28 +58,28 @@ export class FargateAuroraStack extends cdk.Stack {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED, // より安全な独立したサブネットに配置
       },
       credentials: rds.Credentials.fromSecret(dbCredentialsSecret),
-      writer: rds.ClusterInstance.provisioned('writer', {
-        instanceType: ec2.InstanceType.of(ec2.InstanceClass.R8G, ec2.InstanceSize.LARGE), 
+      writer: rds.ClusterInstance.serverlessV2('writer', {
+        scaleWithWriter: true,
         enablePerformanceInsights: true, // パフォーマンス監視を有効化
       }),
       readers: [
-        rds.ClusterInstance.provisioned('reader1', {
-          instanceType: ec2.InstanceType.of(ec2.InstanceClass.R8G, ec2.InstanceSize.LARGE),
+        rds.ClusterInstance.serverlessV2('reader', {
+          scaleWithWriter: true,
         }),
-        // コスト節約のため1台のリーダーに削減
       ],
+      serverlessV2MinCapacity: 0.5,  // 最小ACU (Aurora Capacity Units)
+      serverlessV2MaxCapacity: 2,    // 最大ACU (開発環境向けの設定)
       defaultDatabaseName: 'migrateddb',
       storageEncrypted: true, // ストレージ暗号化を有効化
       backup: {
-        retention: cdk.Duration.days(30), // 30日間のバックアップ保持（本番環境向け）
+        retention: cdk.Duration.days(7), // 7日間のバックアップ保持
         preferredWindow: '02:00-03:00',  // バックアップウィンドウ
       },
-      preferredMaintenanceWindow: 'sun:03:00-sun:04:00', // メンテナンスウィンドウ
       removalPolicy: cdk.RemovalPolicy.DESTROY, // Stack削除時にクラスターも削除（本番ではRETAINを推奨）
       deletionProtection: false, // 開発環境のため削除保護は無効化（本番では有効化推奨）
     });
 
-    // Aurora用のカスタムパラメーターグループを作成
+    // Aurora用のカスタムパラメーターグループを作成（オプション）
     const clusterParameterGroup = new rds.ParameterGroup(this, 'AuroraClusterParameterGroup', {
       engine: rds.DatabaseClusterEngine.auroraPostgres({
         version: rds.AuroraPostgresEngineVersion.VER_16_6,
@@ -88,8 +88,6 @@ export class FargateAuroraStack extends cdk.Stack {
         'shared_preload_libraries': 'pg_stat_statements',
         'log_statement': 'all', // 開発環境向け：全SQLステートメントをログに記録
         'log_min_duration_statement': '1000', // 1秒以上かかるクエリをログに記録
-        'effective_cache_size': '3145728', // 3GB in KB (3 * 1024 * 1024)
-        'shared_buffers': '1048576', // 1GB in KB (1024 * 1024)
       },
     });
 
@@ -108,9 +106,9 @@ export class FargateAuroraStack extends cdk.Stack {
     // ALB, Fargateサービス, タスク定義, セキュリティグループなどを一括で作成します。
     const fargateService = new ecs_patterns.ApplicationLoadBalancedFargateService(this, 'SpringBootFargateService', {
       cluster,
-      cpu: 2048, // 2 vCPU（プロビジョンドAuroraに合わせて増強）
-      memoryLimitMiB: 4096, // 4GBメモリ
-      desiredCount: 3, // 常に3つのタスクを起動（高可用性向け）
+      cpu: 1024, // 1 vCPU
+      memoryLimitMiB: 2048, // 2GBメモリ
+      desiredCount: 2, // 常に2つのタスクを起動
       taskSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
       },
@@ -125,11 +123,8 @@ export class FargateAuroraStack extends cdk.Stack {
         environment: {
           // アプリケーションがAuroraに接続するための環境変数
           SPRING_DATASOURCE_URL: `jdbc:postgresql://${auroraCluster.clusterEndpoint.hostname}:${auroraCluster.clusterEndpoint.port}/migrateddb`,
-          // 読み取り専用接続用のURL（複数のリーダーにロードバランス）
+          // 読み取り専用接続用のURL（オプション）
           SPRING_DATASOURCE_READONLY_URL: `jdbc:postgresql://${auroraCluster.clusterReadEndpoint.hostname}:${auroraCluster.clusterReadEndpoint.port}/migrateddb`,
-          // 接続プールの設定
-          SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: '20',
-          SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: '5',
         },
         secrets: {
           // Secrets Managerからユーザー名とパスワードを安全に環境変数としてコンテナに渡します
@@ -138,7 +133,7 @@ export class FargateAuroraStack extends cdk.Stack {
         },
         logDriver: ecs.LogDrivers.awsLogs({
           streamPrefix: 'fargate-aurora',
-          logRetention: 14, // ログの保持期間（日）
+          logRetention: 7, // ログの保持期間（日）
         }),
       },
       loadBalancerName: 'migration-aurora-alb',
@@ -157,45 +152,32 @@ export class FargateAuroraStack extends cdk.Stack {
       unhealthyThresholdCount: 3,
     });
 
-    // オートスケーリング設定（固定インスタンス構成のため控えめに設定）
+    // オートスケーリング設定（オプション）
     const scalableTarget = fargateService.service.autoScaleTaskCount({
-      minCapacity: 3,
-      maxCapacity: 6, // Serverlessより控えめな上限
+      minCapacity: 2,
+      maxCapacity: 10,
     });
 
     // CPU使用率に基づくオートスケーリング
     scalableTarget.scaleOnCpuUtilization('CpuScaling', {
-      targetUtilizationPercent: 75, // より保守的な閾値
-      scaleInCooldown: cdk.Duration.seconds(120), // スケールイン時のクールダウンを長く
+      targetUtilizationPercent: 70,
+      scaleInCooldown: cdk.Duration.seconds(60),
       scaleOutCooldown: cdk.Duration.seconds(60),
     });
 
     // メモリ使用率に基づくオートスケーリング
     scalableTarget.scaleOnMemoryUtilization('MemoryScaling', {
-      targetUtilizationPercent: 75,
-      scaleInCooldown: cdk.Duration.seconds(120),
+      targetUtilizationPercent: 70,
+      scaleInCooldown: cdk.Duration.seconds(60),
       scaleOutCooldown: cdk.Duration.seconds(60),
     });
 
     // --- 4. セキュリティ設定 ---
     // FargateサービスからAuroraクラスターへの接続を許可します。
+    // CDKがセキュリティグループ間のルールを自動で最適に設定します。
     auroraCluster.connections.allowDefaultPortFrom(fargateService.service.connections);
 
-    // --- 5. モニタリング設定 ---
-    // Aurora クラスターの主要メトリクスのCloudWatchアラームを設定
-    const cpuAlarm = auroraCluster.metricCPUUtilization().createAlarm(this, 'AuroraCpuAlarm', {
-      threshold: 80,
-      evaluationPeriods: 2,
-      treatMissingData: cdk.aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-
-    const connectionAlarm = auroraCluster.metricDatabaseConnections().createAlarm(this, 'AuroraConnectionAlarm', {
-      threshold: 80, // 接続数の閾値
-      evaluationPeriods: 2,
-      treatMissingData: cdk.aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-
-    // --- 6. アウトプット ---
+    // --- 5. アウトプット ---
     // デプロイ後に確認できるよう、重要な情報をCloudFormationの出力として表示します。
     new cdk.CfnOutput(this, 'LoadBalancerDNS', {
       value: fargateService.loadBalancer.loadBalancerDnsName,
@@ -215,11 +197,6 @@ export class FargateAuroraStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SecretArn', {
       value: dbCredentialsSecret.secretArn,
       description: 'ARN of the secret containing database credentials',
-    });
-
-    new cdk.CfnOutput(this, 'ClusterInstanceCount', {
-      value: '3', // Writer 1台 + Reader 2台
-      description: 'Number of Aurora cluster instances (1 writer + 2 readers)',
     });
   }
 }

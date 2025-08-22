@@ -45,7 +45,7 @@ export class FargateRdsStack extends cdk.Stack {
     // RDS for PostgreSQLインスタンスを作成します。
     // Multi-AZ構成で可用性を高め、プライベートサブネットに配置します。
     const dbInstance = new rds.DatabaseInstance(this, 'PostgresDB', {
-      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_14_18 }),
+      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_6 }),
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO), // 開発・検証用途。本番ではm5系などを推奨
       vpc,
       vpcSubnets: {

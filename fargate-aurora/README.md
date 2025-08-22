@@ -1,26 +1,28 @@
-# Fargate with Aurora Serverless v2 Stack
+# Fargate with Aurora Provisioned Stack
 
-このプロジェクトは、AWS Fargate と Aurora Serverless v2 を使用したコンテナアプリケーションのインフラストラクチャをAWS CDKで定義しています。
+このプロジェクトは、AWS Fargate と Aurora（プロビジョンド版）を使用したコンテナアプリケーションのインフラストラクチャをAWS CDKで定義しています。
 
 ## アーキテクチャの概要
 
 - **コンテナ実行環境**: Amazon ECS on AWS Fargate
-- **データベース**: Amazon Aurora Serverless v2 (PostgreSQL互換)
+- **データベース**: Amazon Aurora PostgreSQL（プロビジョンド版）
 - **ロードバランサー**: Application Load Balancer (ALB)
 - **ネットワーク**: Multi-AZ VPC with public/private/isolated subnets
 - **セキュリティ**: AWS Secrets Manager for credentials management
 
 ## 主な特徴
 
-### Aurora Serverless v2の利点
-- **自動スケーリング**: 0.5〜2 ACU (Aurora Capacity Units) の範囲で自動スケール
-- **高可用性**: マルチAZ構成で自動フェイルオーバー
-- **読み取りレプリカ**: 読み取り専用エンドポイントによる負荷分散
+### Aurora プロビジョンド版の利点
+- **予測可能な性能**: 固定インスタンスタイプによる一貫したパフォーマンス
+- **高可用性**: 1台のWriter + 2台のReaderによるマルチAZ構成
+- **読み取りスケーラビリティ**: 複数のReadレプリカによる負荷分散
 - **Performance Insights**: データベースパフォーマンスの詳細な監視
 - **暗号化**: 保存時および転送時のデータ暗号化
+- **長期バックアップ**: 30日間の自動バックアップ
 
 ### Fargateサービスの機能
-- **オートスケーリング**: CPU/メモリ使用率に基づく自動スケーリング (2〜10タスク)
+- **強化されたリソース**: 2 vCPU / 4GB RAM での実行
+- **オートスケーリング**: CPU/メモリ使用率に基づく自動スケーリング (3〜6タスク)
 - **ブルーグリーンデプロイメント**: ダウンタイムなしのローリングアップデート
 - **ヘルスチェック**: ALBによる定期的なヘルスチェック
 - **ログ管理**: CloudWatch Logsへの自動ログ転送
@@ -62,6 +64,7 @@ cdk deploy
 - **AuroraClusterEndpoint**: 書き込み用のAuroraクラスターエンドポイント
 - **AuroraReadEndpoint**: 読み取り専用のAuroraクラスターエンドポイント
 - **SecretArn**: データベース認証情報を含むSecrets ManagerのARN
+- **ClusterInstanceCount**: Auroraクラスターのインスタンス数
 
 ## アプリケーションへのアクセス
 
@@ -78,28 +81,63 @@ aws secretsmanager get-secret-value --secret-id migration/aurora-db-credentials 
 
 PostgreSQLクライアントで接続:
 ```bash
+# ライターへの接続（読み書き可能）
 psql -h <AuroraClusterEndpoint> -U postgres -d migrateddb
+
+# リーダーへの接続（読み取り専用）
+psql -h <AuroraReadEndpoint> -U postgres -d migrateddb
 ```
 
 ## スケーリング設定
 
-### Aurora Serverless v2
-- 最小容量: 0.5 ACU
-- 最大容量: 2 ACU
-- 自動的にワークロードに応じてスケール
+### Aurora プロビジョンド版
+- **Writer**: 1台 (r6g.large)
+- **Reader**: 2台 (r6g.large)
+- **固定インスタンス**: 予測可能なコストとパフォーマンス
 
 ### Fargateタスク
-- 最小タスク数: 2
-- 最大タスク数: 10
-- CPU使用率70%でスケールアウト
-- メモリ使用率70%でスケールアウト
+- 最小タスク数: 3
+- 最大タスク数: 6
+- CPU使用率75%でスケールアウト
+- メモリ使用率75%でスケールアウト
+
+## モニタリング
+
+### CloudWatchアラーム
+- **CPU使用率**: 80%以上で警告
+- **接続数**: 80接続以上で警告
+- **Performance Insights**: 詳細なクエリレベル分析
+
+### ログ管理
+- **アプリケーションログ**: CloudWatch Logs (14日間保持)
+- **Auroraログ**: 全SQLステートメント記録
+- **スロークエリ**: 1秒以上のクエリを記録
 
 ## コスト最適化のポイント
 
-1. **Aurora Serverless v2**: 使用量に応じた課金で、アイドル時はコストを削減
+1. **固定インスタンス**: 予測可能な月額コスト
 2. **NAT Gateway**: 1つのみ使用してコストを削減
-3. **ログ保持期間**: 7日間に設定（必要に応じて調整可能）
-4. **Spot Fargate**: 本番環境では検討可能（現在は通常のFargate）
+3. **ログ保持期間**: 14日間に設定（必要に応じて調整可能）
+4. **インスタンスタイプ**: r6g.largeで性能とコストのバランス
+
+## 本番環境での推奨設定
+
+```typescript
+// より大きなインスタンス
+instanceType: ec2.InstanceType.of(ec2.InstanceClass.R6G, ec2.InstanceSize.XLARGE)
+
+// 削除保護を有効化
+deletionProtection: true,
+removalPolicy: cdk.RemovalPolicy.RETAIN,
+
+// より長いバックアップ保持期間
+retention: cdk.Duration.days(35),
+
+// より多くのリーダーレプリカ
+readers: [
+  // 3-4台のリーダーレプリカを設定
+]
+```
 
 ## クリーンアップ
 
@@ -107,6 +145,8 @@ psql -h <AuroraClusterEndpoint> -U postgres -d migrateddb
 ```bash
 cdk destroy
 ```
+
+**注意**: プロビジョンドインスタンスは削除に時間がかかる場合があります。
 
 ## トラブルシューティング
 
@@ -118,7 +158,12 @@ cdk destroy
 ### データベース接続エラー
 1. Secrets Managerの認証情報を確認
 2. セキュリティグループのルールを確認
-3. VPCのルーティングテーブルを確認
+3. Aurora クラスターの状態を確認
+
+### 性能問題
+1. Performance Insightsでクエリ性能を確認
+2. CloudWatchメトリクスでリソース使用率を確認
+3. 読み取り負荷をリーダーレプリカに分散
 
 ## カスタマイズ
 
@@ -136,12 +181,27 @@ containerPort: 8080, // Spring Bootのデフォルトポート
 path: '/actuator/health', // Spring Boot Actuatorのヘルスチェック
 ```
 
-### Aurora設定の調整
+### インスタンスタイプの変更
 
-本番環境向けには以下を検討:
-- `serverlessV2MaxCapacity`を増やす（例: 16 ACU）
-- `deletionProtection`を`true`に設定
-- `removalPolicy`を`cdk.RemovalPolicy.RETAIN`に変更
+開発環境向けには小さなインスタンス:
+```typescript
+instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM)
+```
+
+本番環境向けにはより大きなインスタンス:
+```typescript
+instanceType: ec2.InstanceType.of(ec2.InstanceClass.R6G, ec2.InstanceSize.XLARGE)
+```
+
+## Serverlessとの比較
+
+| 項目 | Aurora Serverless v2 | Aurora プロビジョンド |
+|------|---------------------|---------------------|
+| **コスト** | 使用量ベース | 固定月額 |
+| **起動時間** | コールドスタートあり | 常時稼働 |
+| **性能** | 変動的 | 予測可能 |
+| **スケール** | 自動（0.5-128 ACU） | 手動（インスタンス追加） |
+| **適用場面** | 不定期ワークロード | 常時稼働アプリ |
 
 ## ライセンス
 
