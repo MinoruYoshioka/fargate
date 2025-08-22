@@ -1,0 +1,16 @@
+{
+  "name": "CDK Slim",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:20-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/aws-cli:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers-extra/features/aws-cdk:2": {
+      "version": "latest"
+    }
+  },
+  "postStartCommand": "npm install -g npm@latest && npm install -g @anthropic-ai/claude-code"
+}
