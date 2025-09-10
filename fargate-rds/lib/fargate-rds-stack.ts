@@ -5,6 +5,7 @@ import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecs_patterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 
 export class FargateRdsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -80,8 +81,11 @@ export class FargateRdsStack extends cdk.Stack {
       taskImageOptions: {
         // ここで実際のアプリケーションコンテナイメージを指定します
         // 例: ecs.ContainerImage.fromEcrRepository(yourEcrRepo, 'latest')
-        image: ecs.ContainerImage.fromRegistry('amazon/amazon-ecs-sample'), // プレースホルダーのサンプルイメージ
-        containerPort: 80, // amazon-ecs-sampleはポート80で動作
+        image: ecs.ContainerImage.fromEcrRepository(
+          ecr.Repository.fromRepositoryName(this, 'PrivateRepo', 'my-spring-app'),
+          'latest'
+        ), // プライベートECRリポジトリからイメージを取得
+        containerPort: 8080, // amazon-ecs-sampleはポート80で動作
         environment: {
           // アプリケーションがDBに接続するための環境変数
           SPRING_DATASOURCE_URL: `jdbc:postgresql://${dbInstance.dbInstanceEndpointAddress}:${dbInstance.dbInstanceEndpointPort}/migrateddb`,

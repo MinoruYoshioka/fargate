@@ -37,10 +37,15 @@ export class FargateAuroraServerlessStack extends cdk.Stack {
 
     // --- 2. データベース層 (Aurora) の定義 ---
     // データベースの認証情報をAWS Secrets Managerで安全に管理します。
+      // データベースの認証情報をAWS Secrets Managerで安全に管理します。
     const dbCredentialsSecret = new secretsmanager.Secret(this, 'DBCredentialsSecret', {
       secretName: 'migration/aurora-db-credentials',
       generateSecretString: {
-        secretStringTemplate: JSON.stringify({ username: 'postgres' }),
+        secretStringTemplate: JSON.stringify({
+          username: 'aws13d10admin',
+          port: 5432,
+          dbname: 'senmonka'
+         }),
         excludePunctuation: true,
         includeSpace: false,
         generateStringKey: 'password',
