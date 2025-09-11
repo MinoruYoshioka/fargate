@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs_patterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -123,7 +124,10 @@ export class FargateAuroraServerlessStack extends cdk.Stack {
       taskImageOptions: {
         // ここで実際のアプリケーションコンテナイメージを指定します
         // 例: ecs.ContainerImage.fromEcrRepository(yourEcrRepo, 'latest')
-        image: ecs.ContainerImage.fromRegistry('amazon/amazon-ecs-sample'), // プレースホルダーのサンプルイメージ
+        image: ecs.ContainerImage.fromEcrRepository(
+          ecr.Repository.fromRepositoryName(this, 'PrivateRepo', 'my-spring-app'),
+          'latest'
+        ),
         containerPort: 80, // amazon-ecs-sampleはポート80で動作
         environment: {
           // アプリケーションがAuroraに接続するための環境変数
