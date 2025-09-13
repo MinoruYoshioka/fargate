@@ -38,7 +38,6 @@ export class FargateAuroraServerlessStack extends cdk.Stack {
 
     // --- 2. データベース層 (Aurora) の定義 ---
     // データベースの認証情報をAWS Secrets Managerで安全に管理します。
-      // データベースの認証情報をAWS Secrets Managerで安全に管理します。
     const dbCredentialsSecret = new secretsmanager.Secret(this, 'DBCredentialsSecret', {
       secretName: 'migration/aurora-db-credentials',
       generateSecretString: {
@@ -46,10 +45,22 @@ export class FargateAuroraServerlessStack extends cdk.Stack {
           username: 'aws13d10admin',
           port: 5432,
           dbname: 'senmonka'
-         }),
+        }),
         excludePunctuation: true,
         includeSpace: false,
         generateStringKey: 'password',
+      },
+    });
+
+    // Aurora用のカスタムパラメーターグループを作成（オプション）
+    const clusterParameterGroup = new rds.ParameterGroup(this, 'AuroraClusterParameterGroup', {
+      engine: rds.DatabaseClusterEngine.auroraPostgres({
+        version: rds.AuroraPostgresEngineVersion.VER_16_6,
+      }),
+      parameters: {
+        'shared_preload_libraries': 'pg_stat_statements',
+        'log_statement': 'all', // 開発環境向け：全SQLステートメントをログに記録
+        'log_min_duration_statement': '1000', // 1秒以上かかるクエリをログに記録
       },
     });
 
@@ -75,37 +86,42 @@ export class FargateAuroraServerlessStack extends cdk.Stack {
       ],
       serverlessV2MinCapacity: 0.5,  // 最小ACU (Aurora Capacity Units)
       serverlessV2MaxCapacity: 2,    // 最大ACU (開発環境向けの設定)
-      defaultDatabaseName: 'migrateddb',
+      defaultDatabaseName: 'senmonka',
       storageEncrypted: true, // ストレージ暗号化を有効化
       backup: {
         retention: cdk.Duration.days(7), // 7日間のバックアップ保持
         preferredWindow: '02:00-03:00',  // バックアップウィンドウ
       },
+      parameterGroup: clusterParameterGroup, // L2コンストラクトでパラメーターグループを設定
       removalPolicy: cdk.RemovalPolicy.DESTROY, // Stack削除時にクラスターも削除（本番ではRETAINを推奨）
       deletionProtection: false, // 開発環境のため削除保護は無効化（本番では有効化推奨）
     });
 
-    // Aurora用のカスタムパラメーターグループを作成（オプション）
-    const clusterParameterGroup = new rds.ParameterGroup(this, 'AuroraClusterParameterGroup', {
-      engine: rds.DatabaseClusterEngine.auroraPostgres({
-        version: rds.AuroraPostgresEngineVersion.VER_16_6,
-      }),
-      parameters: {
-        'shared_preload_libraries': 'pg_stat_statements',
-        'log_statement': 'all', // 開発環境向け：全SQLステートメントをログに記録
-        'log_min_duration_statement': '1000', // 1秒以上かかるクエリをログに記録
-      },
-    });
-
-    // パラメーターグループをクラスターに関連付け
-    const cfnCluster = auroraCluster.node.defaultChild as rds.CfnDBCluster;
-    cfnCluster.dbClusterParameterGroupName = clusterParameterGroup.bindToCluster({}).parameterGroupName;
+    // --- 2.5. データベーススキーマ初期化 ---
+    // 注意: 循環依存を回避するため、DB初期化はアプリケーション側で実装することを推奨
+    // 
+    // アプリケーション側で以下のようなコードを実装してください：
+    // 
+    // CREATE TABLE IF NOT EXISTS users (
+    //     id BIGSERIAL PRIMARY KEY,
+    //     name VARCHAR(255) NOT NULL,
+    //     email VARCHAR(255) NOT NULL UNIQUE,
+    //     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    //     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    // );
+    //
+    // または、マイグレーションツール（Flyway、Liquibase等）の使用を推奨
 
     // --- 3. アプリケーション層 (ECS on Fargate) の定義 ---
     // ECSクラスターを作成します。
     const cluster = new ecs.Cluster(this, 'EcsCluster', {
       vpc,
-      containerInsights: true, // CloudWatch Container Insightsを有効化
+      containerInsights: true, // L2コンストラクトでContainer Insightsを有効化
+    });
+
+    // CloudWatch Container Insightsを有効化
+    cluster.addDefaultCloudMapNamespace({
+      name: 'fargate-aurora',
     });
 
     // ApplicationLoadBalancedFargateService (L3コンストラクト) を使用して、
@@ -130,37 +146,42 @@ export class FargateAuroraServerlessStack extends cdk.Stack {
         ),
         containerPort: 80, // amazon-ecs-sampleはポート80で動作
         environment: {
-          // アプリケーションがAuroraに接続するための環境変数
-          SPRING_DATASOURCE_URL: `jdbc:postgresql://${auroraCluster.clusterEndpoint.hostname}:${auroraCluster.clusterEndpoint.port}/migrateddb`,
-          // 読み取り専用接続用のURL（オプション）
-          SPRING_DATASOURCE_READONLY_URL: `jdbc:postgresql://${auroraCluster.clusterReadEndpoint.hostname}:${auroraCluster.clusterReadEndpoint.port}/migrateddb`,
+          // Aurora接続情報を環境変数として設定
+          DB_HOST: auroraCluster.clusterEndpoint.hostname,
+          DB_PORT: auroraCluster.clusterEndpoint.port.toString(),
+          DB_NAME: 'senmonka',
         },
         secrets: {
           // Secrets Managerからユーザー名とパスワードを安全に環境変数としてコンテナに渡します
-          SPRING_DATASOURCE_USERNAME: ecs.Secret.fromSecretsManager(dbCredentialsSecret, 'username'),
-          SPRING_DATASOURCE_PASSWORD: ecs.Secret.fromSecretsManager(dbCredentialsSecret, 'password'),
+          DB_USERNAME: ecs.Secret.fromSecretsManager(dbCredentialsSecret, 'username'),
+          DB_PASSWORD: ecs.Secret.fromSecretsManager(dbCredentialsSecret, 'password'),
         },
         logDriver: ecs.LogDrivers.awsLogs({
           streamPrefix: 'fargate-aurora',
           logRetention: 7, // ログの保持期間（日）
         }),
       },
+      healthCheckGracePeriod: cdk.Duration.seconds(10), // 60 -> 10
       loadBalancerName: 'migration-aurora-alb',
       publicLoadBalancer: true, // インターネットからのアクセスを許可
       minHealthyPercent: 100, // デプロイ中も最低100%のタスクを維持
       maxHealthyPercent: 200, // デプロイ中は最大200%まで起動可能
     });
 
-    // Fargateタスクのヘルスチェック設定を調整
-    fargateService.targetGroup.configureHealthCheck({
-      path: '/', // amazon-ecs-sampleのルートパス
-      healthyHttpCodes: '200',
-      interval: cdk.Duration.seconds(30),
-      timeout: cdk.Duration.seconds(10),
-      healthyThresholdCount: 2,
-      unhealthyThresholdCount: 3,
-    });
+    // 注意: FargateサービスとDB初期化の依存関係は削除
+    // アプリケーション側でDB接続時にテーブル存在チェックを実装することを推奨
+    fargateService.targetGroup.setAttribute(
+      'deregistration_delay.timeout_seconds',
+      '10'                               // 300 -> 10
+    )
 
+    fargateService.targetGroup.configureHealthCheck({
+      path: '/',
+      healthyHttpCodes: '200',
+      healthyThresholdCount: 3,         // 5 -> 3
+      interval: cdk.Duration.seconds(10)    // 30 -> 10
+      // 他の設定は既存のまま
+    });
     // オートスケーリング設定（オプション）
     const scalableTarget = fargateService.service.autoScaleTaskCount({
       minCapacity: 2,
