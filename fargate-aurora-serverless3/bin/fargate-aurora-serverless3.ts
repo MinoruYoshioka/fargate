@@ -15,7 +15,7 @@ const vpcStack = new VpcStack(app, 'VpcStack', {
 // 2. VPCに依存するAuroraスタックを作成
 const auroraStack = new AuroraStack(app, 'AuroraStack', {
   vpc: vpcStack.vpc,
-  description: 'Aurora PostgreSQL Serverless v2 cluster stack',y
+  description: 'Aurora PostgreSQL Serverless v2 cluster stack',
   
 });
 auroraStack.addDependency(vpcStack);

@@ -53,6 +53,8 @@ export class FargateStack extends cdk.Stack {
           DB_HOST: auroraCluster.clusterEndpoint.hostname,
           DB_PORT: auroraCluster.clusterEndpoint.port.toString(),
           DB_NAME: 'senmonka',
+          SPRING_PROFILES_ACTIVE: 'prod',
+          SECRETS_MANAGER_SECRET_NAME: auroraCluster.secret!.secretName,
         },
         secrets: {
           DB_USERNAME: ecs.Secret.fromSecretsManager(auroraCluster.secret!, 'username'),
