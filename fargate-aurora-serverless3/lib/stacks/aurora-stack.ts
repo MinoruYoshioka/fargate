@@ -2,7 +2,6 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface AuroraStackProps extends cdk.StackProps {
   vpc: ec2.Vpc;
@@ -10,7 +9,6 @@ export interface AuroraStackProps extends cdk.StackProps {
 
 export class AuroraStack extends cdk.Stack {
   public readonly cluster: rds.DatabaseCluster;
-  public readonly secret: secretsmanager.Secret;
   public readonly securityGroup: ec2.SecurityGroup;
 
   constructor(scope: Construct, id: string, props: AuroraStackProps) {
@@ -23,21 +21,6 @@ export class AuroraStack extends cdk.Stack {
       vpc,
       description: 'Security group for Aurora cluster',
       allowAllOutbound: false,
-    });
-
-    // データベース認証情報をSecrets Managerで管理
-    this.secret = new secretsmanager.Secret(this, 'DBCredentialsSecret', {
-      secretName: 'migration/aurora-db-credentials',
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({
-          username: 'aws13d10admin',
-          port: 5432,
-          dbname: 'senmonka'
-        }),
-        excludePunctuation: true,
-        includeSpace: false,
-        generateStringKey: 'password',
-      },
     });
 
     // Aurora用のカスタムパラメーターグループ
@@ -61,7 +44,7 @@ export class AuroraStack extends cdk.Stack {
       vpcSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
       },
-      credentials: rds.Credentials.fromSecret(this.secret),
+      credentials: rds.Credentials.fromUsername('aws13d10admin'),
       securityGroups: [this.securityGroup],
       writer: rds.ClusterInstance.serverlessV2('writer', {
         scaleWithWriter: true,
@@ -100,9 +83,15 @@ export class AuroraStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'SecretArn', {
-      value: this.secret.secretArn,
+      value: this.cluster.secret!.secretArn,
       description: 'ARN of the secret containing database credentials',
       exportName: `${this.stackName}-SecretArn`,
+    });
+
+    new cdk.CfnOutput(this, 'SecretName', {
+      value: this.cluster.secret!.secretName,
+      description: 'Name of the secret containing database credentials',
+      exportName: `${this.stackName}-SecretName`,
     });
   }
 }
