@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/fargate-aurora-serverless2.ts",
+  "app": "npx ts-node --prefer-ts-exts bin/cdk-prd-gaibu.ts",
   "watch": {
     "include": [
       "**"
@@ -94,6 +94,9 @@
     "@aws-cdk/s3-notifications:addS3TrustKeyPolicyForSnsSubscriptions": true,
     "@aws-cdk/aws-ec2:requirePrivateSubnetsForEgressOnlyInternetGateway": true,
     "@aws-cdk/aws-s3:publicAccessBlockedByDefault": true,
-    "@aws-cdk/aws-lambda:useCdkManagedLogGroup": true
+    "@aws-cdk/aws-lambda:useCdkManagedLogGroup": true,
+    "vpcCidr": "10.0.0.0/16",
+    "maxAzs": 2,
+    "databaseName": "appdb"
   }
 }
