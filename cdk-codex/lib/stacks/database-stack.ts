@@ -55,7 +55,7 @@ export class DatabaseStack extends Stack {
 
     this.cluster = new DatabaseCluster(this, 'AuroraCluster', {
       engine: DatabaseClusterEngine.auroraPostgres({
-        version: AuroraPostgresEngineVersion.VER_15_3,
+        version: AuroraPostgresEngineVersion.VER_16_6,
       }),
       credentials: Credentials.fromGeneratedSecret('app_user'),
       defaultDatabaseName: this.databaseName,
@@ -63,7 +63,7 @@ export class DatabaseStack extends Stack {
         enablePerformanceInsights: true,
       }),
       serverlessV2MinCapacity: 0.5,
-      serverlessV2MaxCapacity: 4,
+      serverlessV2MaxCapacity: 2,
       vpc: props.vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_ISOLATED },
       securityGroups: [this.securityGroup],

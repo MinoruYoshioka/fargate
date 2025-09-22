@@ -5,7 +5,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { InstanceTarget } from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import { Role } from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
-import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { DatabaseCluster } from 'aws-cdk-lib/aws-rds';
 import { Construct } from 'constructs';
 
@@ -15,6 +15,7 @@ export interface ComputeStackProps extends StackProps {
   readonly instanceSecurityGroup: ec2.ISecurityGroup;
   readonly instanceRole: Role;
   readonly databaseSecret: ISecret;
+  readonly ec2UserPasswordSecret: ISecret;
   readonly databaseCluster: DatabaseCluster;
   readonly databaseName: string;
   readonly applicationLogGroup: LogGroup;
@@ -68,13 +69,43 @@ export class ComputeStack extends Stack {
     const userData = ec2.UserData.forLinux();
    userData.addCommands(
       '#!/bin/bash',
-      'yum update -y',
+      'dnf update -y',
 
-      // Install required tools including jq for JSON parsing
-      'yum install -y jq curl wget',
+      // Install required tools including jq for JSON parsing and SELinux utilities
+      'dnf install -y jq curl wget tar gzip policycoreutils-python-utils',
 
-      // Install Java 8
-      'yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel',
+      // Install Java 11 LTS (RHEL9 preferred)
+      'dnf install -y java-11-openjdk java-11-openjdk-devel',
+
+      // Get EC2 user password from Secrets Manager
+      `EC2_PASSWORD_SECRET=$(aws secretsmanager get-secret-value --secret-id ${props.ec2UserPasswordSecret.secretArn} --region ${this.region} --query SecretString --output text)`,
+      'EC2_PASSWORD=$(echo $EC2_PASSWORD_SECRET | jq -r .password)',
+
+      // Configure serial console access for RHEL9
+      // Enable console on ttyS0 (serial console)
+      'systemctl enable serial-getty@ttyS0.service',
+      'systemctl start serial-getty@ttyS0.service',
+
+      // Set password for ec2-user (for serial console access)
+      'echo "ec2-user:$EC2_PASSWORD" | chpasswd',
+      'passwd -u ec2-user',
+
+      // Enable password authentication for console
+      'sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/" /etc/ssh/sshd_config',
+
+      // Configure console login
+      'echo "ttyS0" >> /etc/securetty',
+
+      // Update PAM configuration for console access
+      'sed -i "/pam_securetty.so/d" /etc/pam.d/login',
+
+      // Restart services
+      'systemctl restart sshd',
+
+      // Log password setting for debugging (remove in production)
+      'echo "Password set for ec2-user at $(date)" >> /var/log/password-setup.log',
+      'echo "Serial console service status:" >> /var/log/password-setup.log',
+      'systemctl status serial-getty@ttyS0.service >> /var/log/password-setup.log 2>&1',
 
       // Install Tomcat 9 manually
       'wget https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.65/bin/apache-tomcat-9.0.65.tar.gz',
@@ -84,9 +115,9 @@ export class ComputeStack extends Stack {
       'chown -R tomcat: /opt/tomcat',
       'chmod +x /opt/tomcat/bin/*.sh',
 
-      // Install CloudWatch Agent
-      'wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm',
-      'rpm -U ./amazon-cloudwatch-agent.rpm',
+      // Install CloudWatch Agent for RHEL9
+      'wget https://s3.amazonaws.com/amazoncloudwatch-agent/redhat/amd64/latest/amazon-cloudwatch-agent.rpm',
+      'dnf install -y ./amazon-cloudwatch-agent.rpm',
 
       // Configure CloudWatch Agent
       'cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << EOF',
@@ -130,7 +161,7 @@ export class ComputeStack extends Stack {
       'Type=forking',
       'User=tomcat',
       'Group=tomcat',
-      'Environment="JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk"',
+      'Environment="JAVA_HOME=/usr/lib/jvm/java-11-openjdk"',
       'Environment="CATALINA_PID=/opt/tomcat/temp/tomcat.pid"',
       'Environment="CATALINA_HOME=/opt/tomcat"',
       'Environment="CATALINA_BASE=/opt/tomcat"',
@@ -177,6 +208,24 @@ export class ComputeStack extends Stack {
       // Set proper ownership for Tomcat configuration
       'chown tomcat:tomcat /opt/tomcat/conf/context.xml',
 
+      // RHEL9-specific security configurations
+      // Configure SELinux for Tomcat
+      'setsebool -P httpd_can_network_connect 1',
+      'setsebool -P httpd_can_network_connect_db 1',
+      'semanage port -a -t http_port_t -p tcp 8080 2>/dev/null || semanage port -m -t http_port_t -p tcp 8080',
+
+      // Set SELinux context for Tomcat directories
+      'semanage fcontext -a -t bin_t "/opt/tomcat/bin(/.*)?" 2>/dev/null || true',
+      'semanage fcontext -a -t usr_t "/opt/tomcat/lib(/.*)?" 2>/dev/null || true',
+      'semanage fcontext -a -t var_log_t "/opt/tomcat/logs(/.*)?" 2>/dev/null || true',
+      'restorecon -R /opt/tomcat',
+
+      // Configure firewalld for RHEL9
+      'systemctl enable firewalld',
+      'systemctl start firewalld',
+      'firewall-cmd --permanent --add-port=8080/tcp',
+      'firewall-cmd --reload',
+
       // Start services
       'systemctl daemon-reload',
       'systemctl enable tomcat',
@@ -206,6 +255,17 @@ export class ComputeStack extends Stack {
       'systemctl status tomcat >> /var/log/init-status.log 2>&1'
     );
 
+
+    // RHEL 9の最新AMIを動的に検索
+    const rhelAmi = ec2.MachineImage.lookup({
+      name: 'RHEL-9.*_HVM-*-x86_64-*-Hourly2-GP2', // AMI名の検索パターン
+      owners: ['309956199498'], // Red HatのAWSアカウントID
+      filters: {
+        'virtualization-type': ['hvm'],
+        'architecture': ['x86_64'],
+      },
+    });
+
     this.instance = new ec2.Instance(this, 'ApplicationInstance', {
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
@@ -213,15 +273,14 @@ export class ComputeStack extends Stack {
       securityGroup: props.instanceSecurityGroup,
       userData,
       requireImdsv2: true,
-      machineImage: ec2.MachineImage.latestAmazonLinux2023({
-        edition: ec2.AmazonLinuxEdition.STANDARD,
-        cpuType: ec2.AmazonLinuxCpuType.X86_64,
-      }),
+      machineImage: rhelAmi,
+      
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
       detailedMonitoring: true,
     });
 
     props.databaseSecret.grantRead(this.instance);
+    props.ec2UserPasswordSecret.grantRead(this.instance);
 
     this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'ApplicationAlb', {
       vpc: props.vpc,

@@ -1,6 +1,7 @@
 import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
 import { IVpc, Peer, Port, SecurityGroup } from 'aws-cdk-lib/aws-ec2';
 import { CfnInstanceProfile, ManagedPolicy, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
 export interface SecurityStackProps extends StackProps {
@@ -12,6 +13,7 @@ export class SecurityStack extends Stack {
   public readonly applicationSecurityGroup: SecurityGroup;
   public readonly instanceRole: Role;
   public readonly instanceProfile: CfnInstanceProfile;
+  public readonly ec2UserPasswordSecret: Secret;
 
   constructor(scope: Construct, id: string, props: SecurityStackProps) {
     super(scope, id, props);
@@ -46,6 +48,18 @@ export class SecurityStack extends Stack {
 
     this.instanceProfile = new CfnInstanceProfile(this, 'Ec2InstanceProfile', {
       roles: [this.instanceRole.roleName],
+    });
+
+    // Create secret for EC2 user password
+    this.ec2UserPasswordSecret = new Secret(this, 'Ec2UserPasswordSecret', {
+      description: 'Password for ec2-user account for serial console access',
+      generateSecretString: {
+        secretStringTemplate: '{}',
+        generateStringKey: 'password',
+        excludeCharacters: ' "\'\\/\\@',
+        includeSpace: false,
+        passwordLength: 16,
+      },
     });
 
     new CfnOutput(this, 'AlbSecurityGroupId', {

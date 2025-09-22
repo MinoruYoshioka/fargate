@@ -103,9 +103,9 @@ export class ComputeStack extends Stack {
       userData,
       requireImdsv2: true,
       machineImage: ec2.MachineImage.latestAmazonLinux2023({
-        cpuType: ec2.AmazonLinuxCpuType.X86_64,
+        cpuType: ec2.AmazonLinuxCpuType.ARM_64,
       }),
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
       detailedMonitoring: true,
     });
 

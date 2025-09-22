@@ -53,6 +53,7 @@ const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', {
   instanceSecurityGroup: securityStack.applicationSecurityGroup,
   instanceRole: securityStack.instanceRole,
   databaseSecret: databaseStack.secret,
+  ec2UserPasswordSecret: securityStack.ec2UserPasswordSecret,
   databaseCluster: databaseStack.cluster,
   databaseName: databaseStack.databaseName,
   applicationLogGroup: monitoringStack.applicationLogGroup,
