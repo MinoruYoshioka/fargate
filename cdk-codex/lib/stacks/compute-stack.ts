@@ -5,7 +5,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { InstanceTarget } from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import { Role } from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
-import { ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { DatabaseCluster } from 'aws-cdk-lib/aws-rds';
 import { Construct } from 'constructs';
 
@@ -36,223 +36,59 @@ export class ComputeStack extends Stack {
           files: {
             collect_list: [
               {
-                file_path: '/var/log/tomcat/catalina.out',
-                log_group_name: props.applicationLogGroup.logGroupName,
-                log_stream_name: '{instance_id}-catalina',
-              },
-              {
                 file_path: '/var/log/messages',
                 log_group_name: props.systemLogGroup.logGroupName,
                 log_stream_name: '{instance_id}-messages',
               },
+              {
+                file_path: '/var/log/amazon/ssm/amazon-ssm-agent.log',
+                log_group_name: props.systemLogGroup.logGroupName,
+                log_stream_name: '{instance_id}-ssm-agent',
+              },
+              {
+                file_path: '/var/log/user-data.log',
+                log_group_name: props.systemLogGroup.logGroupName,
+                log_stream_name: '{instance_id}-user-data',
+              },
             ],
-          },
-        },
-      },
-      metrics: {
-        namespace: 'Gaibu/Application',
-        append_dimensions: {
-          InstanceId: '${aws:InstanceId}',
-        },
-        metrics_collected: {
-          mem: {
-            measurement: ['mem_used_percent'],
-          },
-          disk: {
-            resources: ['*'],
-            measurement: ['disk_used_percent'],
           },
         },
       },
     };
 
     const userData = ec2.UserData.forLinux();
-   userData.addCommands(
+    userData.addCommands(
       '#!/bin/bash',
-      'dnf update -y',
+      'set -euxo pipefail',
+      'exec > >(tee -a /var/log/user-data.log) 2>&1',
+      `echo "Starting SSM-only bootstrap at $(date) in region ${this.region}"`,
 
-      // Install required tools including jq for JSON parsing and SELinux utilities
-      'dnf install -y jq curl wget tar gzip policycoreutils-python-utils',
+      // Minimal tools
+      'dnf install -y curl wget jq',
 
-      // Install Java 11 LTS (RHEL9 preferred)
-      'dnf install -y java-11-openjdk java-11-openjdk-devel',
+      // Install and start Amazon SSM Agent (RHEL9)
+      `SSM_RPM_URL="https://s3.${this.region}.amazonaws.com/amazon-ssm-${this.region}/latest/linux_amd64/amazon-ssm-agent.rpm"`,
+      'curl -fSL "$SSM_RPM_URL" -o /tmp/amazon-ssm-agent.rpm || wget -O /tmp/amazon-ssm-agent.rpm "$SSM_RPM_URL"',
+      'dnf install -y /tmp/amazon-ssm-agent.rpm || rpm -Uvh /tmp/amazon-ssm-agent.rpm',
+      'systemctl enable amazon-ssm-agent',
+      'systemctl restart amazon-ssm-agent',
+      'systemctl status amazon-ssm-agent || true',
 
-      // Get EC2 user password from Secrets Manager
-      `EC2_PASSWORD_SECRET=$(aws secretsmanager get-secret-value --secret-id ${props.ec2UserPasswordSecret.secretArn} --region ${this.region} --query SecretString --output text)`,
-      'EC2_PASSWORD=$(echo $EC2_PASSWORD_SECRET | jq -r .password)',
-
-      // Configure serial console access for RHEL9
-      // Enable console on ttyS0 (serial console)
-      'systemctl enable serial-getty@ttyS0.service',
-      'systemctl start serial-getty@ttyS0.service',
-
-      // Set password for ec2-user (for serial console access)
-      'echo "ec2-user:$EC2_PASSWORD" | chpasswd',
-      'passwd -u ec2-user',
-
-      // Enable password authentication for console
-      'sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/" /etc/ssh/sshd_config',
-
-      // Configure console login
-      'echo "ttyS0" >> /etc/securetty',
-
-      // Update PAM configuration for console access
-      'sed -i "/pam_securetty.so/d" /etc/pam.d/login',
-
-      // Restart services
-      'systemctl restart sshd',
-
-      // Log password setting for debugging (remove in production)
-      'echo "Password set for ec2-user at $(date)" >> /var/log/password-setup.log',
-      'echo "Serial console service status:" >> /var/log/password-setup.log',
-      'systemctl status serial-getty@ttyS0.service >> /var/log/password-setup.log 2>&1',
-
-      // Install Tomcat 9 manually
-      'wget https://archive.apache.org/dist/tomcat/tomcat-9/v9.0.65/bin/apache-tomcat-9.0.65.tar.gz',
-      'tar -xzf apache-tomcat-9.0.65.tar.gz -C /opt/',
-      'mv /opt/apache-tomcat-9.0.65 /opt/tomcat',
-      'useradd -r -m -U -d /opt/tomcat -s /bin/false tomcat',
-      'chown -R tomcat: /opt/tomcat',
-      'chmod +x /opt/tomcat/bin/*.sh',
-
-      // Install CloudWatch Agent for RHEL9
+      // Install CloudWatch Agent and configure to ship system, SSM and user-data logs
       'wget https://s3.amazonaws.com/amazoncloudwatch-agent/redhat/amd64/latest/amazon-cloudwatch-agent.rpm',
       'dnf install -y ./amazon-cloudwatch-agent.rpm',
-
-      // Configure CloudWatch Agent
-      'cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << EOF',
-      '{',
-      '  "logs": {',
-      '    "logs_collected": {',
-      '      "files": {',
-      '        "collect_list": [',
-      '          {',
-      '            "file_path": "/opt/tomcat/logs/catalina.out",',
-      '            "log_group_name": "/aws/ec2/rhel9/tomcat",',
-      '            "log_stream_name": "{instance_id}"',
-      '          },',
-      '          {',
-      '            "file_path": "/var/log/messages",',
-      '            "log_group_name": "/aws/ec2/rhel9/system",',
-      '            "log_stream_name": "{instance_id}"',
-      '          }',
-      '        ]',
-      '      }',
-      '    }',
-      '  }',
-      '}',
-      'EOF',
-
-      // Get database credentials from Secret Manager
-      `SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id ${props.databaseSecret.secretArn} --region ${this.region} --query SecretString --output text)`,
-      'DB_HOST=$(echo $SECRET_VALUE | jq -r .host)',
-      'DB_USER=$(echo $SECRET_VALUE | jq -r .username)',
-      'DB_PASS=$(echo $SECRET_VALUE | jq -r .password)',
-      'DB_NAME=$(echo $SECRET_VALUE | jq -r .dbname)',
-      'DB_PORT=$(echo $SECRET_VALUE | jq -r .port)',
-
-      // Create systemd service for Tomcat
-      'cat > /etc/systemd/system/tomcat.service << EOF',
-      '[Unit]',
-      'Description=Apache Tomcat Web Application Container',
-      'After=network.target',
-      '',
-      '[Service]',
-      'Type=forking',
-      'User=tomcat',
-      'Group=tomcat',
-      'Environment="JAVA_HOME=/usr/lib/jvm/java-11-openjdk"',
-      'Environment="CATALINA_PID=/opt/tomcat/temp/tomcat.pid"',
-      'Environment="CATALINA_HOME=/opt/tomcat"',
-      'Environment="CATALINA_BASE=/opt/tomcat"',
-      'Environment="CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC"',
-      'Environment="JAVA_OPTS=-Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom"',
-      'Environment="DB_HOST=$DB_HOST"',
-      'Environment="DB_USER=$DB_USER"',
-      'Environment="DB_PASS=$DB_PASS"',
-      'Environment="DB_NAME=$DB_NAME"',
-      'Environment="DB_PORT=$DB_PORT"',
-      'ExecStart=/opt/tomcat/bin/startup.sh',
-      'ExecStop=/opt/tomcat/bin/shutdown.sh',
-      'RestartSec=10',
-      'Restart=always',
-      '',
-      '[Install]',
-      'WantedBy=multi-user.target',
-      'EOF',
-
-      // Configure Tomcat database connection pool
-      'cat > /opt/tomcat/conf/context.xml << EOF',
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<Context>',
-      '    <WatchedResource>WEB-INF/web.xml</WatchedResource>',
-      '    <WatchedResource>WEB-INF/tomcat-web.xml</WatchedResource>',
-      '    <WatchedResource>${catalina.base}/conf/web.xml</WatchedResource>',
-      '    ',
-      '    <!-- Database DataSource Configuration -->',
-      '    <Resource name="jdbc/PostgreSQLDS"',
-      '              auth="Container"',
-      '              type="javax.sql.DataSource"',
-      '              driverClassName="org.postgresql.Driver"',
-      '              url="jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME"',
-      '              username="$DB_USER"',
-      '              password="$DB_PASS"',
-      '              maxTotal="50"',
-      '              maxIdle="10"',
-      '              maxWaitMillis="10000"',
-      '              testOnBorrow="true"',
-      '              validationQuery="SELECT 1"/>',
-      '</Context>',
-      'EOF',
-      '',
-      // Set proper ownership for Tomcat configuration
-      'chown tomcat:tomcat /opt/tomcat/conf/context.xml',
-
-      // RHEL9-specific security configurations
-      // Configure SELinux for Tomcat
-      'setsebool -P httpd_can_network_connect 1',
-      'setsebool -P httpd_can_network_connect_db 1',
-      'semanage port -a -t http_port_t -p tcp 8080 2>/dev/null || semanage port -m -t http_port_t -p tcp 8080',
-
-      // Set SELinux context for Tomcat directories
-      'semanage fcontext -a -t bin_t "/opt/tomcat/bin(/.*)?" 2>/dev/null || true',
-      'semanage fcontext -a -t usr_t "/opt/tomcat/lib(/.*)?" 2>/dev/null || true',
-      'semanage fcontext -a -t var_log_t "/opt/tomcat/logs(/.*)?" 2>/dev/null || true',
-      'restorecon -R /opt/tomcat',
-
-      // Configure firewalld for RHEL9
-      'systemctl enable firewalld',
-      'systemctl start firewalld',
-      'firewall-cmd --permanent --add-port=8080/tcp',
-      'firewall-cmd --reload',
-
-      // Start services
-      'systemctl daemon-reload',
-      'systemctl enable tomcat',
-      'systemctl start tomcat',
-      'systemctl enable amazon-cloudwatch-agent',
-      'systemctl start amazon-cloudwatch-agent',
-
-      // Configure CloudWatch Agent to start collecting logs
+      'rm -f ./amazon-cloudwatch-agent.rpm',
+      `cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOF'
+${JSON.stringify(cloudWatchAgentConfig, null, 2)}
+EOF`,
       '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s',
+      'systemctl status amazon-cloudwatch-agent || true',
 
-      // Wait for services to stabilize
-      'sleep 10',
-
-      // Verify CloudWatch Agent health and status
-      'systemctl status amazon-cloudwatch-agent',
-
-      // Restart CloudWatch Agent if not running properly (error handling)
-      'if ! systemctl is-active --quiet amazon-cloudwatch-agent; then systemctl restart amazon-cloudwatch-agent; fi',
-
-      // Verify Tomcat service health
-      'systemctl status tomcat',
-
-      // Final health check and monitoring setup
-      'echo "CloudWatch Agent status:" >> /var/log/init-status.log',
-      'systemctl status amazon-cloudwatch-agent >> /var/log/init-status.log 2>&1',
-      'echo "Tomcat status:" >> /var/log/init-status.log',
-      'systemctl status tomcat >> /var/log/init-status.log 2>&1'
+      // Helpful diagnostics to files (also shipped to CloudWatch)
+      'echo "=== Diagnostics $(date) ===" >> /var/log/init-status.log',
+      'systemctl is-active amazon-ssm-agent && echo "SSM agent active" >> /var/log/init-status.log || echo "SSM agent NOT active" >> /var/log/init-status.log',
+      'journalctl -u amazon-ssm-agent -n 200 --no-pager >> /var/log/init-status.log 2>&1 || true',
+      'echo "Finished bootstrap at $(date)" >> /var/log/init-status.log'
     );
 
 
