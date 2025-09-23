@@ -19,23 +19,53 @@ const maxAzs = typeof maxAzsContext === 'number' ? maxAzsContext : maxAzsContext
 const databaseName = (app.node.tryGetContext('databaseName') as string | undefined) ?? 'appdb';
 const certificateArn = app.node.tryGetContext('albCertificateArn') as string | undefined;
 
-const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
-  env,
-  cidr: vpcCidr,
-  maxAzs,
-});
+const onlyStack = process.env.STACK;
 
-const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
-securityStack.addDependency(networkStack);
+if (onlyStack === 'network') {
+  new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
+    env,
+    cidr: vpcCidr,
+    maxAzs,
+  });
+} else if (onlyStack === 'security') {
+  const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
+    env,
+    cidr: vpcCidr,
+    maxAzs,
+  });
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
+  securityStack.addDependency(networkStack);
+} else if (onlyStack === 'monitoring') {
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
+  const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', { env });
+  monitoringStack.addDependency(securityStack);
+} else if (onlyStack === 'database') {
+  new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+} else if (onlyStack === 'compute') {
+  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+  const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', { env });
+  const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', { env, certificateArn });
+  computeStack.addDependency(databaseStack);
+  computeStack.addDependency(monitoringStack);
+} else {
+  const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
+    env,
+    cidr: vpcCidr,
+    maxAzs,
+  });
 
-const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', {
-  env,
-});
-monitoringStack.addDependency(securityStack);
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
+  securityStack.addDependency(networkStack);
 
-const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
-databaseStack.addDependency(securityStack);
+  const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', {
+    env,
+  });
+  monitoringStack.addDependency(securityStack);
 
-const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', { env, certificateArn });
-computeStack.addDependency(databaseStack);
-computeStack.addDependency(monitoringStack);
+  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+  databaseStack.addDependency(securityStack);
+
+  const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', { env, certificateArn });
+  computeStack.addDependency(databaseStack);
+  computeStack.addDependency(monitoringStack);
+}

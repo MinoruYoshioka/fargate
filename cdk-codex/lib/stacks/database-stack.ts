@@ -9,7 +9,7 @@ import {
   SubnetGroup,
 } from 'aws-cdk-lib/aws-rds';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface DatabaseStackProps extends StackProps {
@@ -29,13 +29,13 @@ export class DatabaseStack extends Stack {
 
     const vpc = Vpc.fromVpcAttributes(this, 'ImportedVpcForDb', {
       vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
-      availabilityZones: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/azs')),
-      publicSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetIds')),
-      publicSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds')),
-      privateSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetIds')),
-      privateSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds')),
-      isolatedSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetIds')),
-      isolatedSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds')),
+      availabilityZones: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/azs'),
+      publicSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetIds'),
+      publicSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds'),
+      privateSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetIds'),
+      privateSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds'),
+      isolatedSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetIds'),
+      isolatedSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds'),
     });
 
     const subnetGroup = new SubnetGroup(this, 'AuroraSubnetGroup', {

@@ -1,6 +1,6 @@
 import { Stack, StackProps, Fn } from 'aws-cdk-lib';
 import { IpAddresses, SelectedSubnets, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
-import { StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface NetworkStackProps extends StackProps {
@@ -58,33 +58,33 @@ export class NetworkStack extends Stack {
       parameterName: '/cdk-codex/network/vpcId',
       stringValue: this.vpc.vpcId,
     });
-    new StringParameter(this, 'ParamNetworkAzs', {
+    new StringListParameter(this, 'ParamNetworkAzs', {
       parameterName: '/cdk-codex/network/azs',
-      stringValue: azs.join(','),
+      stringListValue: azs,
     });
-    new StringParameter(this, 'ParamNetworkPublicSubnetIds', {
+    new StringListParameter(this, 'ParamNetworkPublicSubnetIds', {
       parameterName: '/cdk-codex/network/publicSubnetIds',
-      stringValue: publicSubnetIds.join(','),
+      stringListValue: publicSubnetIds,
     });
-    new StringParameter(this, 'ParamNetworkPublicSubnetRouteTableIds', {
+    new StringListParameter(this, 'ParamNetworkPublicSubnetRouteTableIds', {
       parameterName: '/cdk-codex/network/publicSubnetRouteTableIds',
-      stringValue: publicSubnetRouteTableIds.join(','),
+      stringListValue: publicSubnetRouteTableIds,
     });
-    new StringParameter(this, 'ParamNetworkPrivateSubnetIds', {
+    new StringListParameter(this, 'ParamNetworkPrivateSubnetIds', {
       parameterName: '/cdk-codex/network/privateSubnetIds',
-      stringValue: privateSubnetIds.join(','),
+      stringListValue: privateSubnetIds,
     });
-    new StringParameter(this, 'ParamNetworkPrivateSubnetRouteTableIds', {
+    new StringListParameter(this, 'ParamNetworkPrivateSubnetRouteTableIds', {
       parameterName: '/cdk-codex/network/privateSubnetRouteTableIds',
-      stringValue: privateSubnetRouteTableIds.join(','),
+      stringListValue: privateSubnetRouteTableIds,
     });
-    new StringParameter(this, 'ParamNetworkIsolatedSubnetIds', {
+    new StringListParameter(this, 'ParamNetworkIsolatedSubnetIds', {
       parameterName: '/cdk-codex/network/isolatedSubnetIds',
-      stringValue: isolatedSubnetIds.join(','),
+      stringListValue: isolatedSubnetIds,
     });
-    new StringParameter(this, 'ParamNetworkIsolatedSubnetRouteTableIds', {
+    new StringListParameter(this, 'ParamNetworkIsolatedSubnetRouteTableIds', {
       parameterName: '/cdk-codex/network/isolatedSubnetRouteTableIds',
-      stringValue: isolatedSubnetRouteTableIds.join(','),
+      stringListValue: isolatedSubnetRouteTableIds,
     });
   }
 }

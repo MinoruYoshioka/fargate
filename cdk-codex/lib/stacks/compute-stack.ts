@@ -5,8 +5,8 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { InstanceTarget } from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import { Role } from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
-import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface ComputeStackProps extends StackProps {
@@ -23,13 +23,13 @@ export class ComputeStack extends Stack {
     // Import dependencies via SSM Parameter Store
     const vpc = ec2.Vpc.fromVpcAttributes(this, 'ImportedVpcForCompute', {
       vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
-      availabilityZones: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/azs')),
-      publicSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetIds')),
-      publicSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds')),
-      privateSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetIds')),
-      privateSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds')),
-      isolatedSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetIds')),
-      isolatedSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds')),
+      availabilityZones: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/azs'),
+      publicSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetIds'),
+      publicSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds'),
+      privateSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetIds'),
+      privateSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds'),
+      isolatedSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetIds'),
+      isolatedSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds'),
     });
     const albSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
       this,
@@ -50,20 +50,15 @@ export class ComputeStack extends Stack {
         mutable: false,
       },
     );
-    const databaseSecret = ISecret.fromSecretCompleteArn(
+    const databaseSecret = Secret.fromSecretCompleteArn(
       this,
       'ImportedDbSecret',
       StringParameter.valueForStringParameter(this, '/cdk-codex/database/secretArn'),
     );
-    const ec2UserPasswordSecret = ISecret.fromSecretCompleteArn(
+    const ec2UserPasswordSecret = Secret.fromSecretCompleteArn(
       this,
       'ImportedEc2UserPasswordSecret',
       StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2UserPasswordSecretArn'),
-    );
-    const applicationLogGroup = LogGroup.fromLogGroupName(
-      this,
-      'ImportedAppLogGroup',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/monitoring/applicationLogGroupName'),
     );
     const systemLogGroup = LogGroup.fromLogGroupName(
       this,

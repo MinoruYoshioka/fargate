@@ -2,7 +2,7 @@ import { Stack, StackProps, Fn } from 'aws-cdk-lib';
 import { Vpc, Peer, Port, SecurityGroup } from 'aws-cdk-lib/aws-ec2';
 import { CfnInstanceProfile, ManagedPolicy, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
-import { StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface SecurityStackProps extends StackProps {
@@ -20,13 +20,13 @@ export class SecurityStack extends Stack {
 
     const vpc = Vpc.fromVpcAttributes(this, 'ImportedVpc', {
       vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
-      availabilityZones: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/azs')),
-      publicSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetIds')),
-      publicSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds')),
-      privateSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetIds')),
-      privateSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds')),
-      isolatedSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetIds')),
-      isolatedSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds')),
+      availabilityZones: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/azs'),
+      publicSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetIds'),
+      publicSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds'),
+      privateSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetIds'),
+      privateSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds'),
+      isolatedSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetIds'),
+      isolatedSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds'),
     });
 
     this.loadBalancerSecurityGroup = new SecurityGroup(this, 'AlbSecurityGroup', {
