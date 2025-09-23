@@ -70,7 +70,7 @@ export class DatabaseStack extends Stack {
       storageEncrypted: true,
       backup: { retention: Duration.days(7) },
       subnetGroup,
-      removalPolicy: RemovalPolicy.SNAPSHOT,
+      removalPolicy: RemovalPolicy.DESTROY,
       cloudwatchLogsExports: ['postgresql'],
     });
 
