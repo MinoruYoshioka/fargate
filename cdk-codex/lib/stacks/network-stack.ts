@@ -1,4 +1,4 @@
-import { Stack, StackProps, Fn } from 'aws-cdk-lib';
+import { Stack, StackProps } from 'aws-cdk-lib';
 import { IpAddresses, SelectedSubnets, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
 import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';

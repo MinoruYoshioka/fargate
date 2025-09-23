@@ -1,5 +1,5 @@
-import { Duration, RemovalPolicy, Stack, StackProps, Fn } from 'aws-cdk-lib';
-import { Vpc, SecurityGroup, SubnetType, Port, Peer } from 'aws-cdk-lib/aws-ec2';
+import { Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
+import { Vpc, SecurityGroup, SubnetType, Port } from 'aws-cdk-lib/aws-ec2';
 import {
   AuroraPostgresEngineVersion,
   ClusterInstance,
@@ -8,7 +8,6 @@ import {
   DatabaseClusterEngine,
   SubnetGroup,
 } from 'aws-cdk-lib/aws-rds';
-import { Role } from 'aws-cdk-lib/aws-iam';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
