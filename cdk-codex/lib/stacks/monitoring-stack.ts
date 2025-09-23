@@ -19,13 +19,13 @@ export class MonitoringStack extends Stack {
     this.applicationLogGroup = new LogGroup(this, 'ApplicationLogGroup', {
       logGroupName: `/cdk-prd-gaibu/app/tomcat`,
       retention,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.systemLogGroup = new LogGroup(this, 'SystemLogGroup', {
       logGroupName: `/cdk-prd-gaibu/system`,
       retention,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     new StringParameter(this, 'ParamApplicationLogGroupName', {
