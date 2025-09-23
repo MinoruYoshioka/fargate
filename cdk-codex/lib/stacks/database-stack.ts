@@ -1,5 +1,5 @@
-import { Duration, RemovalPolicy, Stack, StackProps, CfnOutput } from 'aws-cdk-lib';
-import { IVpc, SecurityGroup, SubnetType, Port, Peer } from 'aws-cdk-lib/aws-ec2';
+import { Duration, RemovalPolicy, Stack, StackProps, Fn } from 'aws-cdk-lib';
+import { Vpc, SecurityGroup, SubnetType, Port, Peer } from 'aws-cdk-lib/aws-ec2';
 import {
   AuroraPostgresEngineVersion,
   ClusterInstance,
@@ -9,10 +9,10 @@ import {
   SubnetGroup,
 } from 'aws-cdk-lib/aws-rds';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface DatabaseStackProps extends StackProps {
-  readonly vpc: IVpc;
   readonly databaseName?: string;
 }
 
@@ -27,31 +27,37 @@ export class DatabaseStack extends Stack {
 
     this.databaseName = props.databaseName ?? 'appdb';
 
+    const vpc = Vpc.fromVpcAttributes(this, 'ImportedVpcForDb', {
+      vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
+      availabilityZones: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/azs')),
+      publicSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetIds')),
+      publicSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds')),
+      privateSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetIds')),
+      privateSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds')),
+      isolatedSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetIds')),
+      isolatedSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds')),
+    });
+
     const subnetGroup = new SubnetGroup(this, 'AuroraSubnetGroup', {
       description: 'Isolated subnets for Aurora ServerlessV2',
-      vpc: props.vpc,
+      vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_ISOLATED },
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.securityGroup = new SecurityGroup(this, 'DatabaseSecurityGroup', {
-      vpc: props.vpc,
+      vpc,
       allowAllOutbound: false,
       description: 'Security group for Aurora Serverless V2 cluster',
     });
 
-    const privateCidrs = props.vpc
-      .selectSubnets({ subnetType: SubnetType.PRIVATE_WITH_EGRESS })
-      .subnets.map((subnet) => subnet.ipv4CidrBlock)
-      .filter((cidr): cidr is string => !!cidr);
-
-    for (const cidr of new Set(privateCidrs)) {
-      this.securityGroup.addIngressRule(
-        Peer.ipv4(cidr),
-        Port.tcp(5432),
-        'Allow private subnets to reach Aurora',
-      );
-    }
+    // Allow application security group to reach Aurora on 5432
+    const appSgId = StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2SecurityGroupId');
+    this.securityGroup.addIngressRule(
+      Peer.securityGroupId(appSgId),
+      Port.tcp(5432),
+      'Allow application SG to reach Aurora',
+    );
 
     this.cluster = new DatabaseCluster(this, 'AuroraCluster', {
       engine: DatabaseClusterEngine.auroraPostgres({
@@ -64,7 +70,7 @@ export class DatabaseStack extends Stack {
       }),
       serverlessV2MinCapacity: 0.5,
       serverlessV2MaxCapacity: 2,
-      vpc: props.vpc,
+      vpc,
       vpcSubnets: { subnetType: SubnetType.PRIVATE_ISOLATED },
       securityGroups: [this.securityGroup],
       storageEncrypted: true,
@@ -83,17 +89,22 @@ export class DatabaseStack extends Stack {
       automaticallyAfter: Duration.days(30),
     });
 
-    new CfnOutput(this, 'AuroraEndpoint', {
-      value: this.cluster.clusterEndpoint.hostname,
-      description: 'Writer endpoint DNS of the Aurora cluster',
+    // Publish database info to SSM Parameter Store
+    new StringParameter(this, 'ParamDbEndpoint', {
+      parameterName: '/cdk-codex/database/endpoint',
+      stringValue: this.cluster.clusterEndpoint.hostname,
     });
-    new CfnOutput(this, 'AuroraReaderEndpoint', {
-      value: this.cluster.clusterReadEndpoint.hostname,
-      description: 'Reader endpoint DNS of the Aurora cluster',
+    new StringParameter(this, 'ParamDbReaderEndpoint', {
+      parameterName: '/cdk-codex/database/readerEndpoint',
+      stringValue: this.cluster.clusterReadEndpoint.hostname,
     });
-    new CfnOutput(this, 'AuroraSecretArn', {
-      value: this.secret.secretArn,
-      description: 'Secrets Manager ARN storing the Aurora credentials',
+    new StringParameter(this, 'ParamDbSecretArn', {
+      parameterName: '/cdk-codex/database/secretArn',
+      stringValue: this.secret.secretArn,
+    });
+    new StringParameter(this, 'ParamDbName', {
+      parameterName: '/cdk-codex/database/name',
+      stringValue: this.databaseName,
     });
   }
 }

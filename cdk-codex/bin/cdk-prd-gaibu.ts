@@ -25,10 +25,7 @@ const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
   maxAzs,
 });
 
-const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
-  env,
-  vpc: networkStack.vpc,
-});
+const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
 securityStack.addDependency(networkStack);
 
 const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', {
@@ -36,29 +33,9 @@ const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', {
 });
 monitoringStack.addDependency(securityStack);
 
-const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', {
-  env,
-  vpc: networkStack.vpc,
-  databaseName,
-});
+const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+databaseStack.addDependency(securityStack);
 
-if (!databaseStack.secret) {
-  throw new Error('Aurora credentials secret is undefined.');
-}
-
-const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', {
-  env,
-  vpc: networkStack.vpc,
-  albSecurityGroup: securityStack.loadBalancerSecurityGroup,
-  instanceSecurityGroup: securityStack.applicationSecurityGroup,
-  instanceRole: securityStack.instanceRole,
-  databaseSecret: databaseStack.secret,
-  ec2UserPasswordSecret: securityStack.ec2UserPasswordSecret,
-  databaseCluster: databaseStack.cluster,
-  databaseName: databaseStack.databaseName,
-  applicationLogGroup: monitoringStack.applicationLogGroup,
-  systemLogGroup: monitoringStack.systemLogGroup,
-  certificateArn,
-});
+const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', { env, certificateArn });
 computeStack.addDependency(databaseStack);
 computeStack.addDependency(monitoringStack);

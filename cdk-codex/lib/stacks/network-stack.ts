@@ -1,5 +1,6 @@
-import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
+import { Stack, StackProps, Fn } from 'aws-cdk-lib';
 import { IpAddresses, SelectedSubnets, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface NetworkStackProps extends StackProps {
@@ -43,21 +44,47 @@ export class NetworkStack extends Stack {
     this.privateSubnets = this.vpc.selectSubnets({ subnetType: SubnetType.PRIVATE_WITH_EGRESS });
     this.isolatedSubnets = this.vpc.selectSubnets({ subnetType: SubnetType.PRIVATE_ISOLATED });
 
-    new CfnOutput(this, 'VpcId', {
-      value: this.vpc.vpcId,
-      description: 'Provisioned VPC identifier',
+    // Collect attributes for VPC import in other stacks
+    const azs = this.availabilityZones;
+    const publicSubnetIds = this.vpc.publicSubnets.map((s) => s.subnetId);
+    const publicSubnetRouteTableIds = this.vpc.publicSubnets.map((s) => s.routeTable.routeTableId);
+    const privateSubnetIds = this.vpc.privateSubnets.map((s) => s.subnetId);
+    const privateSubnetRouteTableIds = this.vpc.privateSubnets.map((s) => s.routeTable.routeTableId);
+    const isolatedSubnetIds = this.vpc.isolatedSubnets.map((s) => s.subnetId);
+    const isolatedSubnetRouteTableIds = this.vpc.isolatedSubnets.map((s) => s.routeTable.routeTableId);
+
+    // Publish to SSM Parameter Store (comma-separated lists)
+    new StringParameter(this, 'ParamNetworkVpcId', {
+      parameterName: '/cdk-codex/network/vpcId',
+      stringValue: this.vpc.vpcId,
     });
-    new CfnOutput(this, 'PublicSubnetIds', {
-      value: this.publicSubnets.subnetIds.join(','),
-      description: 'Public subnet identifiers',
+    new StringParameter(this, 'ParamNetworkAzs', {
+      parameterName: '/cdk-codex/network/azs',
+      stringValue: azs.join(','),
     });
-    new CfnOutput(this, 'PrivateSubnetIds', {
-      value: this.privateSubnets.subnetIds.join(','),
-      description: 'Private subnet identifiers',
+    new StringParameter(this, 'ParamNetworkPublicSubnetIds', {
+      parameterName: '/cdk-codex/network/publicSubnetIds',
+      stringValue: publicSubnetIds.join(','),
     });
-    new CfnOutput(this, 'IsolatedSubnetIds', {
-      value: this.isolatedSubnets.subnetIds.join(','),
-      description: 'Isolated subnet identifiers',
+    new StringParameter(this, 'ParamNetworkPublicSubnetRouteTableIds', {
+      parameterName: '/cdk-codex/network/publicSubnetRouteTableIds',
+      stringValue: publicSubnetRouteTableIds.join(','),
+    });
+    new StringParameter(this, 'ParamNetworkPrivateSubnetIds', {
+      parameterName: '/cdk-codex/network/privateSubnetIds',
+      stringValue: privateSubnetIds.join(','),
+    });
+    new StringParameter(this, 'ParamNetworkPrivateSubnetRouteTableIds', {
+      parameterName: '/cdk-codex/network/privateSubnetRouteTableIds',
+      stringValue: privateSubnetRouteTableIds.join(','),
+    });
+    new StringParameter(this, 'ParamNetworkIsolatedSubnetIds', {
+      parameterName: '/cdk-codex/network/isolatedSubnetIds',
+      stringValue: isolatedSubnetIds.join(','),
+    });
+    new StringParameter(this, 'ParamNetworkIsolatedSubnetRouteTableIds', {
+      parameterName: '/cdk-codex/network/isolatedSubnetRouteTableIds',
+      stringValue: isolatedSubnetRouteTableIds.join(','),
     });
   }
 }

@@ -1,4 +1,4 @@
-import { Duration, Stack, StackProps, CfnOutput } from 'aws-cdk-lib';
+import { Duration, Stack, StackProps, Fn } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
@@ -6,20 +6,10 @@ import { InstanceTarget } from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import { Role } from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { DatabaseCluster } from 'aws-cdk-lib/aws-rds';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface ComputeStackProps extends StackProps {
-  readonly vpc: ec2.IVpc;
-  readonly albSecurityGroup: ec2.ISecurityGroup;
-  readonly instanceSecurityGroup: ec2.ISecurityGroup;
-  readonly instanceRole: Role;
-  readonly databaseSecret: ISecret;
-  readonly ec2UserPasswordSecret: ISecret;
-  readonly databaseCluster: DatabaseCluster;
-  readonly databaseName: string;
-  readonly applicationLogGroup: LogGroup;
-  readonly systemLogGroup: LogGroup;
   readonly certificateArn?: string;
 }
 
@@ -30,6 +20,57 @@ export class ComputeStack extends Stack {
   constructor(scope: Construct, id: string, props: ComputeStackProps) {
     super(scope, id, props);
 
+    // Import dependencies via SSM Parameter Store
+    const vpc = ec2.Vpc.fromVpcAttributes(this, 'ImportedVpcForCompute', {
+      vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
+      availabilityZones: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/azs')),
+      publicSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetIds')),
+      publicSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds')),
+      privateSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetIds')),
+      privateSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds')),
+      isolatedSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetIds')),
+      isolatedSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds')),
+    });
+    const albSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
+      this,
+      'ImportedAlbSg',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/security/albSecurityGroupId'),
+    );
+    const instanceSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
+      this,
+      'ImportedInstanceSg',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2SecurityGroupId'),
+    );
+    const instanceRole = Role.fromRoleArn(
+      this,
+      'ImportedInstanceRole',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/security/instanceRoleArn'),
+      {
+        // Ensure adding policies is allowed
+        mutable: false,
+      },
+    );
+    const databaseSecret = ISecret.fromSecretCompleteArn(
+      this,
+      'ImportedDbSecret',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/database/secretArn'),
+    );
+    const ec2UserPasswordSecret = ISecret.fromSecretCompleteArn(
+      this,
+      'ImportedEc2UserPasswordSecret',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2UserPasswordSecretArn'),
+    );
+    const applicationLogGroup = LogGroup.fromLogGroupName(
+      this,
+      'ImportedAppLogGroup',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/monitoring/applicationLogGroupName'),
+    );
+    const systemLogGroup = LogGroup.fromLogGroupName(
+      this,
+      'ImportedSystemLogGroup',
+      StringParameter.valueForStringParameter(this, '/cdk-codex/monitoring/systemLogGroupName'),
+    );
+
     const cloudWatchAgentConfig = {
       logs: {
         logs_collected: {
@@ -37,17 +78,17 @@ export class ComputeStack extends Stack {
             collect_list: [
               {
                 file_path: '/var/log/messages',
-                log_group_name: props.systemLogGroup.logGroupName,
+                log_group_name: systemLogGroup.logGroupName,
                 log_stream_name: '{instance_id}-messages',
               },
               {
                 file_path: '/var/log/amazon/ssm/amazon-ssm-agent.log',
-                log_group_name: props.systemLogGroup.logGroupName,
+                log_group_name: systemLogGroup.logGroupName,
                 log_stream_name: '{instance_id}-ssm-agent',
               },
               {
                 file_path: '/var/log/user-data.log',
-                log_group_name: props.systemLogGroup.logGroupName,
+                log_group_name: systemLogGroup.logGroupName,
                 log_stream_name: '{instance_id}-user-data',
               },
             ],
@@ -103,10 +144,10 @@ EOF`,
     });
 
     this.instance = new ec2.Instance(this, 'ApplicationInstance', {
-      vpc: props.vpc,
+      vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      role: props.instanceRole,
-      securityGroup: props.instanceSecurityGroup,
+      role: instanceRole,
+      securityGroup: instanceSecurityGroup,
       userData,
       requireImdsv2: true,
       machineImage: rhelAmi,
@@ -115,18 +156,18 @@ EOF`,
       detailedMonitoring: true,
     });
 
-    props.databaseSecret.grantRead(this.instance);
-    props.ec2UserPasswordSecret.grantRead(this.instance);
+    databaseSecret.grantRead(this.instance);
+    ec2UserPasswordSecret.grantRead(this.instance);
 
     this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'ApplicationAlb', {
-      vpc: props.vpc,
+      vpc,
       internetFacing: true,
-      securityGroup: props.albSecurityGroup,
+      securityGroup: albSecurityGroup,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
     });
 
     const targetGroup = new elbv2.ApplicationTargetGroup(this, 'Ec2TargetGroup', {
-      vpc: props.vpc,
+      vpc,
       port: 8080,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [new InstanceTarget(this.instance, 8080)],
@@ -193,14 +234,14 @@ EOF`,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new CfnOutput(this, 'AlbDnsName', {
-      value: this.loadBalancer.loadBalancerDnsName,
-      description: 'DNS name of the Application Load Balancer',
+    // Publish identifiers to SSM Parameter Store
+    new StringParameter(this, 'ParamAlbDnsName', {
+      parameterName: '/cdk-codex/compute/albDnsName',
+      stringValue: this.loadBalancer.loadBalancerDnsName,
     });
-
-    new CfnOutput(this, 'InstanceId', {
-      value: this.instance.instanceId,
-      description: 'EC2 instance identifier',
+    new StringParameter(this, 'ParamInstanceId', {
+      parameterName: '/cdk-codex/compute/instanceId',
+      stringValue: this.instance.instanceId,
     });
   }
 }

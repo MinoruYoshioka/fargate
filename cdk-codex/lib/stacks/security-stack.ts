@@ -1,11 +1,11 @@
-import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
-import { IVpc, Peer, Port, SecurityGroup } from 'aws-cdk-lib/aws-ec2';
+import { Stack, StackProps, Fn } from 'aws-cdk-lib';
+import { Vpc, Peer, Port, SecurityGroup } from 'aws-cdk-lib/aws-ec2';
 import { CfnInstanceProfile, ManagedPolicy, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface SecurityStackProps extends StackProps {
-  readonly vpc: IVpc;
 }
 
 export class SecurityStack extends Stack {
@@ -18,8 +18,19 @@ export class SecurityStack extends Stack {
   constructor(scope: Construct, id: string, props: SecurityStackProps) {
     super(scope, id, props);
 
+    const vpc = Vpc.fromVpcAttributes(this, 'ImportedVpc', {
+      vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
+      availabilityZones: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/azs')),
+      publicSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetIds')),
+      publicSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds')),
+      privateSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetIds')),
+      privateSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds')),
+      isolatedSubnetIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetIds')),
+      isolatedSubnetRouteTableIds: Fn.split(',', StringParameter.valueForStringParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds')),
+    });
+
     this.loadBalancerSecurityGroup = new SecurityGroup(this, 'AlbSecurityGroup', {
-      vpc: props.vpc,
+      vpc,
       allowAllOutbound: true,
       description: 'Security group for the public Application Load Balancer',
     });
@@ -27,7 +38,7 @@ export class SecurityStack extends Stack {
     this.loadBalancerSecurityGroup.addIngressRule(Peer.anyIpv4(), Port.tcp(443), 'Allow inbound HTTPS');
 
     this.applicationSecurityGroup = new SecurityGroup(this, 'Ec2SecurityGroup', {
-      vpc: props.vpc,
+      vpc,
       allowAllOutbound: true,
       description: 'Security group for the application EC2 instance',
     });
@@ -62,17 +73,22 @@ export class SecurityStack extends Stack {
       },
     });
 
-    new CfnOutput(this, 'AlbSecurityGroupId', {
-      value: this.loadBalancerSecurityGroup.securityGroupId,
-      description: 'Security group for the ALB',
+    // Publish identifiers to SSM Parameter Store
+    new StringParameter(this, 'ParamAlbSecurityGroupId', {
+      parameterName: '/cdk-codex/security/albSecurityGroupId',
+      stringValue: this.loadBalancerSecurityGroup.securityGroupId,
     });
-    new CfnOutput(this, 'Ec2SecurityGroupId', {
-      value: this.applicationSecurityGroup.securityGroupId,
-      description: 'Security group for the EC2 instance',
+    new StringParameter(this, 'ParamEc2SecurityGroupId', {
+      parameterName: '/cdk-codex/security/ec2SecurityGroupId',
+      stringValue: this.applicationSecurityGroup.securityGroupId,
     });
-    new CfnOutput(this, 'Ec2InstanceRoleArn', {
-      value: this.instanceRole.roleArn,
-      description: 'ARN of the EC2 instance IAM role',
+    new StringParameter(this, 'ParamEc2InstanceRoleArn', {
+      parameterName: '/cdk-codex/security/instanceRoleArn',
+      stringValue: this.instanceRole.roleArn,
+    });
+    new StringParameter(this, 'ParamEc2UserPasswordSecretArn', {
+      parameterName: '/cdk-codex/security/ec2UserPasswordSecretArn',
+      stringValue: this.ec2UserPasswordSecret.secretArn,
     });
   }
 }

@@ -1,5 +1,6 @@
-import { RemovalPolicy, Stack, StackProps, CfnOutput } from 'aws-cdk-lib';
+import { RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface MonitoringStackProps extends StackProps {
@@ -27,14 +28,14 @@ export class MonitoringStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
-    new CfnOutput(this, 'ApplicationLogGroupName', {
-      value: this.applicationLogGroup.logGroupName,
-      description: 'CloudWatch Logs group for Tomcat logs',
+    new StringParameter(this, 'ParamApplicationLogGroupName', {
+      parameterName: '/cdk-codex/monitoring/applicationLogGroupName',
+      stringValue: this.applicationLogGroup.logGroupName,
     });
 
-    new CfnOutput(this, 'SystemLogGroupName', {
-      value: this.systemLogGroup.logGroupName,
-      description: 'CloudWatch Logs group for system logs',
+    new StringParameter(this, 'ParamSystemLogGroupName', {
+      parameterName: '/cdk-codex/monitoring/systemLogGroupName',
+      stringValue: this.systemLogGroup.logGroupName,
     });
   }
 }
