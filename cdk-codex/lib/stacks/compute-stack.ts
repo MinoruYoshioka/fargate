@@ -5,11 +5,17 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { InstanceTarget } from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
 import { Role } from 'aws-cdk-lib/aws-iam';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
-import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
-import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { ISecret, Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface ComputeStackProps extends StackProps {
+  readonly vpc: ec2.Vpc;
+  readonly albSecurityGroup: ec2.SecurityGroup;
+  readonly instanceSecurityGroup: ec2.SecurityGroup;
+  readonly instanceRole: Role;
+  readonly ec2UserPasswordSecret: ISecret;
+  readonly systemLogGroup: LogGroup;
   readonly certificateArn?: string;
 }
 
@@ -20,51 +26,12 @@ export class ComputeStack extends Stack {
   constructor(scope: Construct, id: string, props: ComputeStackProps) {
     super(scope, id, props);
 
-    // Import dependencies via SSM Parameter Store
-    const vpc = ec2.Vpc.fromVpcAttributes(this, 'ImportedVpcForCompute', {
-      vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
-      availabilityZones: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/azs'),
-      publicSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetIds'),
-      publicSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds'),
-      privateSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetIds'),
-      privateSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds'),
-      isolatedSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetIds'),
-      isolatedSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds'),
-    });
-    const albSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
-      this,
-      'ImportedAlbSg',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/security/albSecurityGroupId'),
-    );
-    const instanceSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
-      this,
-      'ImportedInstanceSg',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2SecurityGroupId'),
-    );
-    const instanceRole = Role.fromRoleArn(
-      this,
-      'ImportedInstanceRole',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/security/instanceRoleArn'),
-      {
-        // Ensure adding policies is allowed
-        mutable: false,
-      },
-    );
-    const databaseSecret = Secret.fromSecretCompleteArn(
-      this,
-      'ImportedDbSecret',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/database/secretArn'),
-    );
-    const ec2UserPasswordSecret = Secret.fromSecretCompleteArn(
-      this,
-      'ImportedEc2UserPasswordSecret',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2UserPasswordSecretArn'),
-    );
-    const systemLogGroup = LogGroup.fromLogGroupName(
-      this,
-      'ImportedSystemLogGroup',
-      StringParameter.valueForStringParameter(this, '/cdk-codex/monitoring/systemLogGroupName'),
-    );
+    const vpc = props.vpc;
+    const albSecurityGroup = props.albSecurityGroup;
+    const instanceSecurityGroup = props.instanceSecurityGroup;
+    const instanceRole = props.instanceRole;
+    const ec2UserPasswordSecret = props.ec2UserPasswordSecret;
+    const systemLogGroup = props.systemLogGroup;
 
     const cloudWatchAgentConfig = {
       logs: {
@@ -151,7 +118,6 @@ EOF`,
       detailedMonitoring: true,
     });
 
-    databaseSecret.grantRead(this.instance);
     ec2UserPasswordSecret.grantRead(this.instance);
 
     this.loadBalancer = new elbv2.ApplicationLoadBalancer(this, 'ApplicationAlb', {

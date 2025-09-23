@@ -1,11 +1,12 @@
 import { Stack, StackProps, Fn } from 'aws-cdk-lib';
 import { Vpc, Peer, Port, SecurityGroup } from 'aws-cdk-lib/aws-ec2';
-import { CfnInstanceProfile, ManagedPolicy, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
+import { CfnInstanceProfile, ManagedPolicy, PolicyStatement, Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface SecurityStackProps extends StackProps {
+  readonly vpc: Vpc;
 }
 
 export class SecurityStack extends Stack {
@@ -18,16 +19,7 @@ export class SecurityStack extends Stack {
   constructor(scope: Construct, id: string, props: SecurityStackProps) {
     super(scope, id, props);
 
-    const vpc = Vpc.fromVpcAttributes(this, 'ImportedVpc', {
-      vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
-      availabilityZones: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/azs'),
-      publicSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetIds'),
-      publicSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds'),
-      privateSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetIds'),
-      privateSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds'),
-      isolatedSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetIds'),
-      isolatedSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds'),
-    });
+    const vpc = props.vpc;
 
     this.loadBalancerSecurityGroup = new SecurityGroup(this, 'AlbSecurityGroup', {
       vpc,
@@ -56,6 +48,17 @@ export class SecurityStack extends Stack {
         ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy'),
       ],
     });
+
+    // Add permission to read secrets from SecretsManager
+    this.instanceRole.addToPolicy(new PolicyStatement({
+      actions: [
+        'secretsmanager:GetSecretValue',
+        'secretsmanager:DescribeSecret',
+      ],
+      resources: [
+        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/cdk-codex/*`,
+      ],
+    }));
 
     this.instanceProfile = new CfnInstanceProfile(this, 'Ec2InstanceProfile', {
       roles: [this.instanceRole.roleName],

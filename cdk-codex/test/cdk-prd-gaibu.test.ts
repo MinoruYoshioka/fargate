@@ -46,13 +46,14 @@ test('Database stack enables Aurora Serverless V2 with rotation', () => {
   const stack = new DatabaseStack(app, 'Database', {
     env,
     vpc: network.vpc,
+    applicationSecurityGroup: security.applicationSecurityGroup,
   });
   const template = Template.fromStack(stack);
 
   template.hasResourceProperties('AWS::RDS::DBCluster', {
     Engine: 'aurora-postgresql',
     ServerlessV2ScalingConfiguration: {
-      MaxCapacity: 4,
+      MaxCapacity: 2,
       MinCapacity: 0.5,
     },
   });

@@ -53,7 +53,7 @@ export class NetworkStack extends Stack {
     const isolatedSubnetIds = this.vpc.isolatedSubnets.map((s) => s.subnetId);
     const isolatedSubnetRouteTableIds = this.vpc.isolatedSubnets.map((s) => s.routeTable.routeTableId);
 
-    // Publish to SSM Parameter Store (comma-separated lists)
+    // Publish to SSM Parameter Store
     new StringParameter(this, 'ParamNetworkVpcId', {
       parameterName: '/cdk-codex/network/vpcId',
       stringValue: this.vpc.vpcId,

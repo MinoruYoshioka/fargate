@@ -8,11 +8,14 @@ import {
   DatabaseClusterEngine,
   SubnetGroup,
 } from 'aws-cdk-lib/aws-rds';
+import { Role } from 'aws-cdk-lib/aws-iam';
 import { ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface DatabaseStackProps extends StackProps {
+  readonly vpc: Vpc;
+  readonly applicationSecurityGroup: SecurityGroup;
   readonly databaseName?: string;
 }
 
@@ -26,17 +29,7 @@ export class DatabaseStack extends Stack {
     super(scope, id, props);
 
     this.databaseName = props.databaseName ?? 'appdb';
-
-    const vpc = Vpc.fromVpcAttributes(this, 'ImportedVpcForDb', {
-      vpcId: StringParameter.valueForStringParameter(this, '/cdk-codex/network/vpcId'),
-      availabilityZones: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/azs'),
-      publicSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetIds'),
-      publicSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/publicSubnetRouteTableIds'),
-      privateSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetIds'),
-      privateSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/privateSubnetRouteTableIds'),
-      isolatedSubnetIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetIds'),
-      isolatedSubnetRouteTableIds: StringListParameter.valueForTypedListParameter(this, '/cdk-codex/network/isolatedSubnetRouteTableIds'),
-    });
+    const vpc = props.vpc;
 
     const subnetGroup = new SubnetGroup(this, 'AuroraSubnetGroup', {
       description: 'Isolated subnets for Aurora ServerlessV2',
@@ -52,9 +45,8 @@ export class DatabaseStack extends Stack {
     });
 
     // Allow application security group to reach Aurora on 5432
-    const appSgId = StringParameter.valueForStringParameter(this, '/cdk-codex/security/ec2SecurityGroupId');
     this.securityGroup.addIngressRule(
-      Peer.securityGroupId(appSgId),
+      props.applicationSecurityGroup,
       Port.tcp(5432),
       'Allow application SG to reach Aurora',
     );
@@ -88,6 +80,10 @@ export class DatabaseStack extends Stack {
     this.cluster.addRotationSingleUser({
       automaticallyAfter: Duration.days(30),
     });
+
+    // Grant read access to the instance role via IAM policy attachment
+    // Note: The instance role will be granted access via policy attachment
+    // in SecurityStack when the secret ARN becomes available
 
     // Publish database info to SSM Parameter Store
     new StringParameter(this, 'ParamDbEndpoint', {

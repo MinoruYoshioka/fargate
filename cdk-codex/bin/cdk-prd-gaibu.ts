@@ -33,18 +33,60 @@ if (onlyStack === 'network') {
     cidr: vpcCidr,
     maxAzs,
   });
-  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
+    env,
+    vpc: networkStack.vpc,
+  });
   securityStack.addDependency(networkStack);
 } else if (onlyStack === 'monitoring') {
-  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
   const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', { env });
-  monitoringStack.addDependency(securityStack);
 } else if (onlyStack === 'database') {
-  new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+  const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
+    env,
+    cidr: vpcCidr,
+    maxAzs,
+  });
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
+    env,
+    vpc: networkStack.vpc,
+  });
+  securityStack.addDependency(networkStack);
+  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', {
+    env,
+    vpc: networkStack.vpc,
+    applicationSecurityGroup: securityStack.applicationSecurityGroup,
+    databaseName,
+  });
+  databaseStack.addDependency(securityStack);
 } else if (onlyStack === 'compute') {
-  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+  const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
+    env,
+    cidr: vpcCidr,
+    maxAzs,
+  });
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
+    env,
+    vpc: networkStack.vpc,
+  });
+  securityStack.addDependency(networkStack);
+  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', {
+    env,
+    vpc: networkStack.vpc,
+    applicationSecurityGroup: securityStack.applicationSecurityGroup,
+    databaseName,
+  });
+  databaseStack.addDependency(securityStack);
   const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', { env });
-  const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', { env, certificateArn });
+  const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', {
+    env,
+    vpc: networkStack.vpc,
+    albSecurityGroup: securityStack.loadBalancerSecurityGroup,
+    instanceSecurityGroup: securityStack.applicationSecurityGroup,
+    instanceRole: securityStack.instanceRole,
+    ec2UserPasswordSecret: securityStack.ec2UserPasswordSecret,
+    systemLogGroup: monitoringStack.systemLogGroup,
+    certificateArn,
+  });
   computeStack.addDependency(databaseStack);
   computeStack.addDependency(monitoringStack);
 } else {
@@ -54,18 +96,34 @@ if (onlyStack === 'network') {
     maxAzs,
   });
 
-  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', { env });
+  const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
+    env,
+    vpc: networkStack.vpc,
+  });
   securityStack.addDependency(networkStack);
 
   const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', {
     env,
   });
-  monitoringStack.addDependency(securityStack);
 
-  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', { env, databaseName });
+  const databaseStack = new DatabaseStack(app, 'CdkPrdGaibuDatabaseStack', {
+    env,
+    vpc: networkStack.vpc,
+    applicationSecurityGroup: securityStack.applicationSecurityGroup,
+    databaseName,
+  });
   databaseStack.addDependency(securityStack);
 
-  const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', { env, certificateArn });
+  const computeStack = new ComputeStack(app, 'CdkPrdGaibuComputeStack', {
+    env,
+    vpc: networkStack.vpc,
+    albSecurityGroup: securityStack.loadBalancerSecurityGroup,
+    instanceSecurityGroup: securityStack.applicationSecurityGroup,
+    instanceRole: securityStack.instanceRole,
+    ec2UserPasswordSecret: securityStack.ec2UserPasswordSecret,
+    systemLogGroup: monitoringStack.systemLogGroup,
+    certificateArn,
+  });
   computeStack.addDependency(databaseStack);
   computeStack.addDependency(monitoringStack);
 }
