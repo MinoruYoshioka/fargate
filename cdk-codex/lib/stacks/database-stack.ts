@@ -15,7 +15,6 @@ import { Construct } from 'constructs';
 export interface DatabaseStackProps extends StackProps {
   readonly vpc: Vpc;
   readonly applicationSecurityGroup: SecurityGroup;
-  readonly databaseName?: string;
 }
 
 export class DatabaseStack extends Stack {
@@ -27,7 +26,7 @@ export class DatabaseStack extends Stack {
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
-    this.databaseName = props.databaseName ?? 'appdb';
+    this.databaseName = 'appdb';
     const vpc = props.vpc;
 
     const subnetGroup = new SubnetGroup(this, 'AuroraSubnetGroup', {

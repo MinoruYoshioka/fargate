@@ -9,7 +9,7 @@ const env = { account: '123456789012', region: 'ap-northeast-1' };
 
 test('Network stack provisions a three-tier VPC', () => {
   const app = new cdk.App();
-  const stack = new NetworkStack(app, 'TestNetwork', { env, cidr: '10.1.0.0/16', maxAzs: 2 });
+  const stack = new NetworkStack(app, 'TestNetwork', { env });
   const template = Template.fromStack(stack);
 
   template.hasResourceProperties('AWS::EC2::VPC', {

@@ -4,7 +4,6 @@ import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface MonitoringStackProps extends StackProps {
-  readonly logRetention?: RetentionDays;
 }
 
 export class MonitoringStack extends Stack {
@@ -14,7 +13,7 @@ export class MonitoringStack extends Stack {
   constructor(scope: Construct, id: string, props?: MonitoringStackProps) {
     super(scope, id, props);
 
-    const retention = props?.logRetention ?? RetentionDays.THREE_MONTHS;
+    const retention = RetentionDays.THREE_MONTHS;
 
     this.applicationLogGroup = new LogGroup(this, 'ApplicationLogGroup', {
       logGroupName: `/cdk-prd-gaibu/app/tomcat`,

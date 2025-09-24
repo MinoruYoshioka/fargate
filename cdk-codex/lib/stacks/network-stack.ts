@@ -4,8 +4,6 @@ import { StringListParameter, StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 export interface NetworkStackProps extends StackProps {
-  readonly cidr?: string;
-  readonly maxAzs?: number;
 }
 
 export class NetworkStack extends Stack {
@@ -18,9 +16,9 @@ export class NetworkStack extends Stack {
     super(scope, id, props);
 
     this.vpc = new Vpc(this, 'ApplicationVpc', {
-      ipAddresses: IpAddresses.cidr(props?.cidr ?? '10.0.0.0/16'),
+      ipAddresses: IpAddresses.cidr('10.0.0.0/16'),
       natGateways: 1,
-      maxAzs: props?.maxAzs ?? 2,
+      maxAzs: 2,
       subnetConfiguration: [
         {
           name: 'Public',

@@ -14,25 +14,25 @@
 - **AZ**: デフォルト2つのAvailability Zone、最大数設定可能
 
 ### 2. SecurityStack（セキュリティスタック）
-- **ALB用セキュリティグループ**: HTTP(80)、HTTPS(443)の受信を許可
+- **ALB用セキュリティグループ**: HTTP(80)の受信を許可
 - **EC2用セキュリティグループ**: ALBからのTomcat(8080)アクセスを許可
 - **IAMロール**: EC2インスタンス用（SSM、CloudWatch、Secrets Manager権限）
 - **EC2ユーザーパスワードシークレット**: インスタンスアクセス用
 
 ### 3. MonitoringStack（監視スタック）
 - **CloudWatch ロググループ**: アプリケーションログとシステムログ
-- **ログ保持期間**: デフォルト3ヶ月、設定可能
+- **ログ保持期間**: 固定3ヶ月
 - **SSMパラメータ**: ロググループ名を他スタックで参照可能
 
 ### 4. DatabaseStack（データベーススタック）
 - **Aurora PostgreSQL**: サーバーレス v2クラスタ
-- **データベース名**: デフォルト `appdb`、設定可能
+- **データベース名**: 固定 `appdb`
 - **セキュリティ**: アプリケーションからのアクセスのみ許可
 - **サブネットグループ**: アイソレーテッドサブネット使用
 
 ### 5. ComputeStack（コンピュートスタック）
 - **EC2インスタンス**: RHEL 9、t3.medium、プライベートサブネット配置
-- **Application Load Balancer**: パブリックサブネットに配置
+- **Application Load Balancer**: パブリックサブネットに配置、HTTP(80)のみ
 - **UserData**: Java 8、SSM Agent、CloudWatch Agentを自動インストール
 - **ヘルスチェック**: ALBからのアプリケーションヘルスチェック
 - **監視**: CPU使用率、ALB 5xxエラー用CloudWatchアラーム
@@ -65,12 +65,6 @@ cdk deploy -c vpcCidr=192.168.0.0/16
 
 # 最大AZ数の変更
 cdk deploy -c maxAzs=3
-
-# データベース名の変更
-cdk deploy -c databaseName=myapp
-
-# ALB SSL証明書の設定
-cdk deploy -c albCertificateArn=arn:aws:acm:region:account:certificate/certificate-id
 ```
 
 ### 個別スタックデプロイ

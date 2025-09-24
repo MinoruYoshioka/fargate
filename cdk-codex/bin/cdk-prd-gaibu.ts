@@ -13,25 +13,16 @@ const env = {
   region: process.env.CDK_DEFAULT_REGION ?? 'ap-northeast-1',
 };
 
-const vpcCidr = app.node.tryGetContext('vpcCidr') as string | undefined;
-const maxAzsContext = app.node.tryGetContext('maxAzs');
-const maxAzs = typeof maxAzsContext === 'number' ? maxAzsContext : maxAzsContext ? Number(maxAzsContext) : undefined;
-const databaseName = (app.node.tryGetContext('databaseName') as string | undefined) ?? 'appdb';
-const certificateArn = app.node.tryGetContext('albCertificateArn') as string | undefined;
 
 const onlyStack = process.env.STACK;
 
 if (onlyStack === 'network') {
   new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
     env,
-    cidr: vpcCidr,
-    maxAzs,
   });
 } else if (onlyStack === 'security') {
   const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
     env,
-    cidr: vpcCidr,
-    maxAzs,
   });
   const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
     env,
@@ -39,12 +30,11 @@ if (onlyStack === 'network') {
   });
   securityStack.addDependency(networkStack);
 } else if (onlyStack === 'monitoring') {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', { env });
 } else if (onlyStack === 'database') {
   const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
     env,
-    cidr: vpcCidr,
-    maxAzs,
   });
   const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
     env,
@@ -55,14 +45,11 @@ if (onlyStack === 'network') {
     env,
     vpc: networkStack.vpc,
     applicationSecurityGroup: securityStack.applicationSecurityGroup,
-    databaseName,
   });
   databaseStack.addDependency(securityStack);
 } else if (onlyStack === 'compute') {
   const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
     env,
-    cidr: vpcCidr,
-    maxAzs,
   });
   const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
     env,
@@ -73,7 +60,6 @@ if (onlyStack === 'network') {
     env,
     vpc: networkStack.vpc,
     applicationSecurityGroup: securityStack.applicationSecurityGroup,
-    databaseName,
   });
   databaseStack.addDependency(securityStack);
   const monitoringStack = new MonitoringStack(app, 'CdkPrdGaibuMonitoringStack', { env });
@@ -85,15 +71,12 @@ if (onlyStack === 'network') {
     instanceRole: securityStack.instanceRole,
     ec2UserPasswordSecret: securityStack.ec2UserPasswordSecret,
     systemLogGroup: monitoringStack.systemLogGroup,
-    certificateArn,
   });
   computeStack.addDependency(databaseStack);
   computeStack.addDependency(monitoringStack);
 } else {
   const networkStack = new NetworkStack(app, 'CdkPrdGaibuNetworkStack', {
     env,
-    cidr: vpcCidr,
-    maxAzs,
   });
 
   const securityStack = new SecurityStack(app, 'CdkPrdGaibuSecurityStack', {
@@ -110,7 +93,6 @@ if (onlyStack === 'network') {
     env,
     vpc: networkStack.vpc,
     applicationSecurityGroup: securityStack.applicationSecurityGroup,
-    databaseName,
   });
   databaseStack.addDependency(securityStack);
 
@@ -122,7 +104,6 @@ if (onlyStack === 'network') {
     instanceRole: securityStack.instanceRole,
     ec2UserPasswordSecret: securityStack.ec2UserPasswordSecret,
     systemLogGroup: monitoringStack.systemLogGroup,
-    certificateArn,
   });
   computeStack.addDependency(databaseStack);
   computeStack.addDependency(monitoringStack);
