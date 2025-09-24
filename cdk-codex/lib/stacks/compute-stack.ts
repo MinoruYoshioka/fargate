@@ -87,18 +87,18 @@ export class ComputeStack extends Stack {
       'systemctl restart amazon-ssm-agent',
       'systemctl status amazon-ssm-agent || true',
 
-      // Install Apache Tomcat 10
-      'TOMCAT_VERSION="10.1.43"',
+      // Install Apache Tomcat 9.0.38 (Java 8 compatible)
+      'TOMCAT_VERSION="9.0.38"',
       'TOMCAT_USER="tomcat"',
       'TOMCAT_HOME="/opt/tomcat"',
       '',
       '# Create tomcat user and directories',
       'useradd -r -s /bin/false -d "$TOMCAT_HOME" "$TOMCAT_USER" || true',
-      'mkdir -p "$TOMCAT_HOME"',
+      'sudo mkdir -p "$TOMCAT_HOME"',
       '',
-      '# Download and install Tomcat 10',
+      '# Download and install Tomcat 9',
       'cd /tmp',
-      'sudo wget "https://archive.apache.org/dist/tomcat/tomcat-10/v${TOMCAT_VERSION}/bin/apache-tomcat-${TOMCAT_VERSION}.tar.gz"',
+      'sudo curl -O "https://archive.apache.org/dist/tomcat/tomcat-9/v${TOMCAT_VERSION}/bin/apache-tomcat-${TOMCAT_VERSION}.tar.gz"',
       'sudo tar -xzf "apache-tomcat-${TOMCAT_VERSION}.tar.gz"',
       'sudo cp -r "apache-tomcat-${TOMCAT_VERSION}"/* "$TOMCAT_HOME/"',
       'sudo chown -R "$TOMCAT_USER":"$TOMCAT_USER" "$TOMCAT_HOME"',
